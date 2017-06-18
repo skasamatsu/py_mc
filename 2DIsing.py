@@ -1,5 +1,6 @@
 import numpy as np
 import random as rand
+import sys
 
 from mc import model, CanonicalMonteCarlo
 
@@ -19,6 +20,10 @@ class ising2D(model):
             for j in range(ising2D_config.lenY):
                 e += self.J*config[i,j]*(config[i-1,j] + config[i,j-1])
         return e
+
+    def magnetization(self,ising2D_config):
+        '''Calculate magnetization'''
+        return ising2D_config.config.sum()
 
     def trialstep(self, ising2D_config):
         # choose x,y randomly
@@ -75,14 +80,35 @@ class ising2D_config:
 
 
 if __name__ == "__main__":
-    J = 1.0
+    J = -1.0
     kT = abs(J) * 1.0
-    config = ising2D_config(10,10)
+    size = 10
+    eqsteps = 100000
+    mcsteps = 1000000
+    sample_frequency = size*size
+    config = ising2D_config(size,size)
     config.prepare_random()
-    print config
     model = ising2D(J)
-    calc = CanonicalMonteCarlo(model, kT, config)
-    calc.run(1000000)
-    print config
+
+    for kT in np.arange(5, 0.5, -0.05):
+        energy_expect = 0
+        magnet_expect = 0
+        
+        kT = abs(J)*kT        
+
+        #print config        
+        calc = CanonicalMonteCarlo(model, kT, config)
+        calc.run(eqsteps)
+
+        mcloop = mcsteps/sample_frequency
+        for i in range(mcloop):
+            calc.run(sample_frequency)
+            #print model.energy(config), model.magnetization(config)
+            energy_expect += model.energy(config)
+            magnet_expect += abs(model.magnetization(config))
+        print kT, energy_expect/mcloop, magnet_expect/mcloop
+        sys.stdout.flush()
+    #calc.run(100000)
+    #print config
     
         
