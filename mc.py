@@ -19,7 +19,8 @@ class model:
 
     def trialstep(self, config):
         '''Define a trial step on config. Returns dconfig, which can contain the minimal information for
-        constructing the trial configuration from config to be used in newconfig().'''
+        constructing the trial configuration from config to be used in newconfig(). Make sure that
+        config is the same upon entry and exit'''
         dE = 0.0
         # Return only change in configuration dconfig so that
         # you don't have to copy entire configurations,
