@@ -4,13 +4,15 @@ import sys, os
 import copy
 import cPickle
 
-from mc import model, CanonicalMonteCarlo
 from pymatgen import Lattice, Structure, Element
 from pymatgen.io.vasp import Poscar, VaspInput
-from pymatgen.analysis.structure_matcher import StructureMatcher
+from pymatgen.analysis.structure_matcher import StructureMatcher, FrameworkComparator
 from pymatgen.apps.borg.hive import SimpleVaspToComputedEntryDrone
 from pymatgen.apps.borg.queen import BorgQueen
-from run_vasp import vasp_run
+#from mc.applications.dft_spinel_mix.dft_spinel_mix import dft_spinel_mix, spinel_config
+from applications.dft_spinel_mix.run_vasp import vasp_run
+from mc import model, CanonicalMonteCarlo
+
 
 class dft_spinel_mix(model):
     '''This class defines the DFT spinel model'''
@@ -20,6 +22,10 @@ class dft_spinel_mix(model):
     def __init__(self, calcode, ltol, vasp_run_cmd):
         self.calcode = calcode
         self.matcher = StructureMatcher(ltol=ltol, primitive_cell=False)
+        FrameWorkComparatorObject = FrameworkComparator()
+        self.matcher_site = StructureMatcher(ltol=ltol, primitive_cell=False,
+                                             allow_subset=True,
+                                             comparator=FrameWorkComparatorObject)
         self.drone = SimpleVaspToComputedEntryDrone(inc_structure=True)
         self.queen = BorgQueen(self.drone)
         self.vasp_run_cmd = vasp_run_cmd
@@ -39,8 +45,8 @@ class dft_spinel_mix(model):
                 if self.matcher.fit(structure, calc_history[i].structure):
                     print "match found in history"
                     return calc_history[i].energy
-        poscar = Poscar(structure)
-        vaspinput = VaspInput.from_directory('baseinput')
+        poscar = Poscar(structure.get_sorted_structure())
+        vaspinput = VaspInput.from_directory(os.path.join(os.path.dirname(__file__), "baseinput"))
         vaspinput.update({'POSCAR':poscar})
         p = vasp_run(vaspinput, 'output', self.vasp_run_cmd)
         exitcode = p.wait()
@@ -48,15 +54,23 @@ class dft_spinel_mix(model):
         if exitcode !=0:
             print "something went wrong"
             sys.exit(1)
+        queen = BorgQueen(self.drone)
         queen.serial_assimilate('./output')
-        results = queen.get_data()
+        results = queen.get_data()[0]
         calc_history.append(results)
+        spinel_config.structure = results.structure
+        print results.energy
+        sys.stdout.flush()
         return results.energy
         
 
     def xparam(self,spinel_config):
         '''Calculate number of B atoms in A sites'''
-        asites = spinel_config.Asites
+        asites = self.matcher_site.get_mapping(spinel_config.structure,
+                                               spinel_config.Asite_struct)
+        print asites
+        print spinel_config.structure
+        print spinel_config.Asite_struct
         x = 0
         for i in asites:
             if spinel_config.structure.species[i] == Element(spinel_config.Bspecie):
@@ -70,7 +84,7 @@ class dft_spinel_mix(model):
         e0 = self.energy(spinel_config)
         
         # choose one A atom and one B atom randomly and flip
-        structure = copy.deepcopy(spinel_config.structure)
+        structure = spinel_config.structure.copy()
         Aspecie = spinel_config.Aspecie
         Bspecie = spinel_config.Bspecie
         Apos = structure.indices_from_symbol(Aspecie)
@@ -109,10 +123,12 @@ class spinel_config:
     '''This class defines the disordered spinel model configuration'''
 
     def __init__(self, cellsize, Aspecie, Bspecie):
-        self.base_structure = Structure.from_file(os.path.join(os.path.dirname(__file__), "POSCAR"))
+        self.base_structure = Structure.from_file(os.path.join(os.path.dirname(__file__), "POSCAR"))#.get_primitive_structure(tolerance=0.001)
         self.base_structure.make_supercell([cellsize, cellsize, cellsize])
-        self.Asites = self.base_structure.indices_from_symbol("Mg")
-        self.Bsites = self.base_structure.indices_from_symbol("Al")
+        self.Asite_struct = self.base_structure.copy()
+        self.Asite_struct.remove_species(["O", "Al"])
+        self.Bsite_struct = self.base_structure.copy()
+        self.Bsite_struct.remove_species(["O", "Mg"])
         self.Aspecie = Aspecie
         self.Bspecie = Bspecie
         self.base_structure["Mg"] = Aspecie
@@ -123,12 +139,12 @@ class spinel_config:
 
     def prepare_random(self):
         # Prepare a structure where 1/2 of A sites are exchanged with B sites randomly
-        Asites = self.Asites
-        Bsites = self.Bsites
+        Asites = self.base_structure.indices_from_symbol("Mg")
+        Bsites = self.base_structure.indices_from_symbol("Al")
         flipsites = len(Asites)/2
         Aflip = rand.sample(Asites, flipsites)
         Bflip = rand.sample(Bsites, flipsites)
-        self.structure = copy.deepcopy(self.base_structure)
+        self.structure = self.base_structure.copy()
         for i in range(flipsites):
             self.structure[Aflip[i]] = self.Bspecie
             self.structure[Bflip[i]] = self.Aspecie
@@ -148,15 +164,18 @@ class spinel_config:
 if __name__ == "__main__":
     kB = 8.6173e-5
     cellsize = 1
-    eqsteps = 100
+    eqsteps = 300
     mcsteps = 10000
     sample_frequency = 100
     config = spinel_config(cellsize, "Mg", "Al")
     config.prepare_random()
     print config.structure
+    
     vasp_run_cmd = "mpijob /home/issp/vasp/vasp.5.3.5/bin/vasp.gamma"
     model = dft_spinel_mix(calcode="VASP", ltol=0.2, vasp_run_cmd=vasp_run_cmd)
-
+    print model.xparam(config)
+    sys.exit()
+    
     for T in [1500]:
         energy_expect = 0
         xparam_expect = 0
@@ -164,9 +183,9 @@ if __name__ == "__main__":
         kT = kB*T
 
         #print config        
-        #calc = CanonicalMonteCarlo(model, kT, config)
-#        calc.run(eqsteps)
-#        cPickle.dump(config, open("spinel_config.pickle", "wb"))
+        calc = CanonicalMonteCarlo(model, kT, config)
+        calc.run(eqsteps)
+        cPickle.dump(config, open("spinel_config.pickle", "wb"))
 
         mcloop = mcsteps/sample_frequency
         #for i in range(mcloop):

@@ -9,7 +9,9 @@ def vasp_run(VaspInput, output_dir, vasp_run_cmd):
     cwd = os.getcwd()
     os.chdir(output_dir)
     stdout = open("stdout.log", "w")
-    p = subprocess.Popen(vasp_run_cmd, stdout=stdout, shell=True)
+    stderr = open("stderr.log", "w")
+    stdin = open(os.devnull, "r")
+    p = subprocess.Popen(vasp_run_cmd, stdout=stdout, stderr=stderr, stdin=stdin, shell=True)
     os.chdir(cwd)
     return p
 
