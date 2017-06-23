@@ -124,4 +124,4 @@ class TemperatureReplicaExchange:
             self.Xtrial()
             #self.configs = [MCreplica.config for MCreplica in self.MCreplicas]
         #print self.accept_count
-        self.accept_count = 0
+        #self.accept_count = 0
