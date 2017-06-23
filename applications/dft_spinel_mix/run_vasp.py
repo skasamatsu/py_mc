@@ -15,6 +15,20 @@ def vasp_run(VaspInput, output_dir, vasp_run_cmd):
     os.chdir(cwd)
     return p
 
+def vasp_bulkjob_server(q, nvaspruns, n_mpiprocs, n_ompthreads):
+    # Meant to be run as a separate process that
+    # receives vasp jobs, writes a joblist file, and
+    # submits a bulkjob in ISSP System B (SGI ICE XA)
+    while True:
+        vaspruns = []
+        for i in range(nvaspruns):
+            vasprun = q.get(timeout=1800)
+            if vasprun == "terminate":
+                break
+            vaspruns.append(vasprun)
+        
+                
+
 
 if __name__ == "__main__":
     vasp_run_cmd = "mpijob /home/issp/vasp/vasp.5.3.5/bin/vasp.gamma"
