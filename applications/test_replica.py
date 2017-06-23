@@ -1,8 +1,12 @@
 import numpy as np
 import random as rand
 import sys
+import copy
+import time
+from timeit import default_timer as timer
+from multiprocessing import Process, Queue, Pool, TimeoutError
 
-from mc import model, CanonicalMonteCarlo
+from mc import model, CanonicalMonteCarlo, MultiProcessReplicaRun, TemperatureReplicaExchange 
 
 class ising2D(model):
     '''This class defines the 2D ising model'''
@@ -81,14 +85,65 @@ class ising2D_config:
 
 if __name__ == "__main__":
     J = -1.0
-    kT = abs(J) * 1.0
-    size = 10
+    #kT = abs(J) * 0.1
+    size = 100
     eqsteps = 100000
-    mcsteps = 1000000
+    mcsteps = 10000000
+    nreplicas = 8
+    nprocs = 8
     sample_frequency = size*size
     config = ising2D_config(size,size)
     config.prepare_random()
+    configs = [copy.deepcopy(config) for i in range(nreplicas)]
     model = ising2D(J)
+
+    kT = abs(J)*1.0
+    
+    calc_list = [CanonicalMonteCarlo(model, kT, configs[i])
+                 for i in range(nreplicas)
+                 ]
+    #nsteps = 100000
+    
+    #time.sleep(10)
+    start = timer()
+    mcloop = mcsteps/sample_frequency
+    
+    pool = Pool(processes=nprocs)
+
+    # Simple parallel run of 4 replicas at 1 temperature
+    # energy_hist_file = open("energy_replica.dat", "w")
+    # for i in range(mcloop):
+    #     calc_list = MultiProcessReplicaRun(calc_list, sample_frequency, pool)
+    #     energy_line = "\t".join([str(calc.energy) for calc in calc_list])
+    #     energy_hist_file.write(energy_line+"\n")
+    #     energy_hist_file.flush()
+    # print calc_list[0].config
+    # energy_hist_file.close()
+#
+    # Parallel tempering
+    kTs = np.array([1.0, 1.02, 1.04, 1.06, 1.08, 1.1, 1.12, 1.14])
+    RXconfigs = [copy.deepcopy(config) for i in range(nreplicas)]
+    RXcalc = TemperatureReplicaExchange(model, kTs, RXconfigs, CanonicalMonteCarlo)
+    energy_hist_file = open("energy_RX.dat", "w")
+    RXsample_frequency = 50
+    for i in range(mcloop):
+        RXcalc.run(sample_frequency, RXsample_frequency, pool)
+        #configs = RXcalc.configs
+        energy_line = "\t".join([str(MCreplica.energy) for MCreplica in RXcalc.MCreplicas])
+        energy_hist_file.write(energy_line+"\n")
+        energy_hist_file.flush()
+    print RXcalc.MCreplicas[0].config
+##
+
+    
+    #end = timer()
+    #print nprocs, " procs, ",  mcsteps, " steps each:", end - start
+    
+    #start = timer()
+    #calc_list[0].run(mcsteps*nprocs)
+    #end = timer()
+    #print "1 proc, ", mcsteps*nprocs, " steps:", end - start
+    sys.exit()
 
     for kT in np.arange(5, 0.5, -0.05):
         energy_expect = 0
