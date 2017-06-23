@@ -93,8 +93,9 @@ if __name__ == "__main__":
     nprocs = 8
     sample_frequency = size*size
     config = ising2D_config(size,size)
-    config.prepare_random()
+    #config.prepare_random()
     configs = [copy.deepcopy(config) for i in range(nreplicas)]
+    for config in configs: config.prepare_random()
     model = ising2D(J)
 
     kT = abs(J)*1.0
@@ -125,7 +126,9 @@ if __name__ == "__main__":
     RXconfigs = [copy.deepcopy(config) for i in range(nreplicas)]
     RXcalc = TemperatureReplicaExchange(model, kTs, RXconfigs, CanonicalMonteCarlo)
     energy_hist_file = open("energy_RX.dat", "w")
-    RXsample_frequency = 50
+    RXsample_frequency = 100000
+    sample_frequency = RXsample_frequency
+    mcloop = 500
     for i in range(mcloop):
         RXcalc.run(sample_frequency, RXsample_frequency, pool)
         #configs = RXcalc.configs

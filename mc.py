@@ -56,26 +56,52 @@ class CanonicalMonteCarlo:
         for i in range(nsteps):
             self.MCstep()
 
-def MCalgo_Run_multiprocess_wrapper(MCcalc, nsteps):
-    MCcalc.run(nsteps)
+def MCalgo_Run_multiprocess_wrapper(MCcalc, nsteps, outdir=None):
+    if outdir:
+        # create subdirectory and run there
+        if not os.path.exists(outdir): os.mkdir(outdir)
+        os.chdir(outdir)
+        MCcalc.run(nsteps)
+    else:
+        MCcalc.run(nsteps)
     return MCcalc
 
-def MultiProcessReplicaRun(MCcalc_list, nsteps, pool):
+def MultiProcessReplicaRun(MCcalc_list, nsteps, pool, subdirs=False):
     n_replicas = len(MCcalc_list)
-    results = [
-        pool.apply_async(
-            MCalgo_Run_multiprocess_wrapper,(MCcalc_list[rep],
-                                             nsteps)
-        )
-        for rep in range(n_replicas)
-    ]
+    if subdirs:
+        results = [
+            pool.apply_async(
+                MCalgo_Run_multiprocess_wrapper,(MCcalc_list[rep],
+                                                 nsteps, str(rep))
+            )
+            for rep in range(n_replicas)
+        ]
+    else:
+        results = [
+            pool.apply_async(
+                MCalgo_Run_multiprocess_wrapper,(MCcalc_list[rep],
+                                                 nsteps)
+            )
+            for rep in range(n_replicas)
+        ]
     return [res.get(timeout=1800) for res in results]
 
-        
+
+def swap_configs(MCreplicas, rep, accept_count):
+    # swap configs, energy
+    tmp = MCreplicas[rep+1].config
+    tmpe = MCreplicas[rep+1].energy
+    MCreplicas[rep+1].config = MCreplicas[rep].config
+    MCreplicas[rep+1].energy = MCreplicas[rep].energy
+    MCreplicas[rep].config = tmp
+    MCreplicas[rep].energy = tmpe
+    accept_count += 1
+    return MCreplicas, accept_count
+    
             
 class TemperatureReplicaExchange:
 
-    def __init__(self, model, kTs, configs, MCalgo):
+    def __init__(self, model, kTs, configs, MCalgo, swap_algo=swap_configs):
         assert len(kTs) == len(configs)
         self.model = model
         self.kTs = kTs
@@ -83,6 +109,7 @@ class TemperatureReplicaExchange:
         self.n_replicas = len(kTs)
         self.MCreplicas = []
         self.accept_count = 0
+        self.swap_algo = swap_algo
         for i in range(self.n_replicas):
             self.MCreplicas.append(MCalgo(model, kTs[i], configs[i]))
 
@@ -95,31 +122,20 @@ class TemperatureReplicaExchange:
         #print self.MCreplicas[rep].energy, self.model.energy(self.MCreplicas[rep].config)
                 
         if delta < 0.0:
-            # swap configs, energy
-            tmp = self.MCreplicas[rep+1].config
-            tmpe = self.MCreplicas[rep+1].energy
-            self.MCreplicas[rep+1].config = self.MCreplicas[rep].config
-            self.MCreplicas[rep+1].energy = self.MCreplicas[rep].energy
-            self.MCreplicas[rep].config = tmp
-            self.MCreplicas[rep].energy = tmpe
-            self.accept_count += 1
+            self.MCreplicas, self.accept_count = self.swap_algo(self.MCreplicas,
+                                                           rep, self.accept_count)
         else:
             accept_probability = exp(-delta)
             #print accept_probability, "accept prob"
             if random() <= accept_probability:
-                tmp = self.MCreplicas[rep+1].config
-                tmpe = self.MCreplicas[rep+1].energy
-                self.MCreplicas[rep+1].config = self.MCreplicas[rep].config
-                self.MCreplicas[rep+1].energy = self.MCreplicas[rep].energy
-                self.MCreplicas[rep].config = tmp
-                self.MCreplicas[rep].energy = tmpe
-                self.accept_count += 1
+                self.MCreplicas, self.accept_count = self.swap_algo(self.MCreplicas,
+                                                           rep, self.accept_count)
         
-    def run(self, nsteps, attempt_frequency, pool):
+    def run(self, nsteps, attempt_frequency, pool, subdirs=False):
         self.accept_count = 0
         outerloop = nsteps/attempt_frequency
         for i in range(outerloop):
-            self.MCreplicas = MultiProcessReplicaRun(self.MCreplicas, attempt_frequency, pool)
+            self.MCreplicas = MultiProcessReplicaRun(self.MCreplicas, attempt_frequency, pool, subdirs)
             self.Xtrial()
             #self.configs = [MCreplica.config for MCreplica in self.MCreplicas]
         #print self.accept_count
