@@ -60,9 +60,8 @@ def MCalgo_Run_multiprocess_wrapper(MCcalc, nsteps):
     MCcalc.run(nsteps)
     return MCcalc
 
-def MultiProcessReplicaRun(MCcalc_list, nsteps, nprocs):
+def MultiProcessReplicaRun(MCcalc_list, nsteps, pool):
     n_replicas = len(MCcalc_list)
-    pool = Pool(processes=nprocs)
     results = [
         pool.apply_async(
             MCalgo_Run_multiprocess_wrapper,(MCcalc_list[rep],
@@ -70,7 +69,7 @@ def MultiProcessReplicaRun(MCcalc_list, nsteps, nprocs):
         )
         for rep in range(n_replicas)
     ]
-    return [res.get() for res in results]
+    return [res.get(timeout=1800) for res in results]
 
         
             
@@ -78,12 +77,12 @@ class TemperatureReplicaExchange:
 
     def __init__(self, model, kTs, configs, MCalgo):
         assert len(kTs) == len(configs)
-        self.configs = configs
         self.model = model
         self.kTs = kTs
         self.betas = 1.0/kTs
         self.n_replicas = len(kTs)
         self.MCreplicas = []
+        self.accept_count = 0
         for i in range(self.n_replicas):
             self.MCreplicas.append(MCalgo(model, kTs[i], configs[i]))
 
@@ -91,24 +90,37 @@ class TemperatureReplicaExchange:
         # pick a replica
         rep = randrange(self.n_replicas - 1)
         delta = (self.betas[rep + 1] - self.betas[rep]) \
-                *(self.model.energy(self.MCreplicas[rep].config) -
-                  self.model.energy(self.MCreplicas[rep+1].config)
-                )
+                *(self.MCreplicas[rep].energy -
+                  self.MCreplicas[rep+1].energy)
+        #print self.MCreplicas[rep].energy, self.model.energy(self.MCreplicas[rep].config)
+                
         if delta < 0.0:
-            # swap configs
+            # swap configs, energy
             tmp = self.MCreplicas[rep+1].config
-            self.MCreplicas[rep+1].config = MCreplicas[rep].config
+            tmpe = self.MCreplicas[rep+1].energy
+            self.MCreplicas[rep+1].config = self.MCreplicas[rep].config
+            self.MCreplicas[rep+1].energy = self.MCreplicas[rep].energy
             self.MCreplicas[rep].config = tmp
+            self.MCreplicas[rep].energy = tmpe
+            self.accept_count += 1
         else:
             accept_probability = exp(-delta)
+            #print accept_probability, "accept prob"
             if random() <= accept_probability:
-                tmp = MCreplicas[rep+1].config
-                MCreplicas[rep+1].config = MCreplicas[rep].config
-                MCreplicas[rep].config = tmp
+                tmp = self.MCreplicas[rep+1].config
+                tmpe = self.MCreplicas[rep+1].energy
+                self.MCreplicas[rep+1].config = self.MCreplicas[rep].config
+                self.MCreplicas[rep+1].energy = self.MCreplicas[rep].energy
+                self.MCreplicas[rep].config = tmp
+                self.MCreplicas[rep].energy = tmpe
+                self.accept_count += 1
         
-    def run(self, nsteps, attempt_frequency, nprocs):
+    def run(self, nsteps, attempt_frequency, pool):
+        self.accept_count = 0
         outerloop = nsteps/attempt_frequency
-        pool = Pool(processes=nprocs)
         for i in range(outerloop):
-            self.MCreplicas = MultiProcessReplicaRun(self.MCreplicas, attempt_frequency, nprocs)
+            self.MCreplicas = MultiProcessReplicaRun(self.MCreplicas, attempt_frequency, pool)
             self.Xtrial()
+            #self.configs = [MCreplica.config for MCreplica in self.MCreplicas]
+        #print self.accept_count
+        self.accept_count = 0
