@@ -19,7 +19,7 @@ class dft_spinel_mix(model):
 
     model_name = "dft_spinel"
     
-    def __init__(self, calcode, ltol, vasp_run_cmd):
+    def __init__(self, calcode, ltol, vasp_run):
         self.calcode = calcode
         self.matcher = StructureMatcher(ltol=ltol, primitive_cell=False)
         FrameWorkComparatorObject = FrameworkComparator()
@@ -28,7 +28,7 @@ class dft_spinel_mix(model):
                                              comparator=FrameWorkComparatorObject)
         self.drone = SimpleVaspToComputedEntryDrone(inc_structure=True)
         self.queen = BorgQueen(self.drone)
-        self.vasp_run_cmd = vasp_run_cmd
+        self.vasp_run = vasp_run
         #self.base_structure = Poscar.from_file("MgAl2O4.vasp")
         #self.base_structure.make_supercell(
         #    [supercellsize,supercellsize,supercellsize])
@@ -48,8 +48,7 @@ class dft_spinel_mix(model):
         poscar = Poscar(structure.get_sorted_structure())
         vaspinput = VaspInput.from_directory(os.path.join(os.path.dirname(__file__), "baseinput"))
         vaspinput.update({'POSCAR':poscar})
-        p = vasp_run(vaspinput, 'output', self.vasp_run_cmd)
-        exitcode = p.wait()
+        exitcode = vasp_run.submit(vaspinput, os.getcwd()+'/output')
         print "vasp exited with exit code", exitcode
         if exitcode !=0:
             print "something went wrong"
@@ -62,15 +61,21 @@ class dft_spinel_mix(model):
         print results.energy
         sys.stdout.flush()
         return results.energy
-        
+
+    def terminate(self):
+        # Tell vasprun qwatcher that I'm done (if it exists)
+        try:
+            self.vasprun.terminate()
+        except AttributeError:
+            pass
 
     def xparam(self,spinel_config):
         '''Calculate number of B atoms in A sites'''
         asites = self.matcher_site.get_mapping(spinel_config.structure,
                                                spinel_config.Asite_struct)
-        print asites
-        print spinel_config.structure
-        print spinel_config.Asite_struct
+        #print asites
+        #print spinel_config.structure
+        #print spinel_config.Asite_struct
         x = 0
         for i in asites:
             if spinel_config.structure.species[i] == Element(spinel_config.Bspecie):
