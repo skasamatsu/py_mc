@@ -3,6 +3,7 @@ from pymatgen import Structure
 from pymatgen.io.vasp import Poscar, Kpoints, Potcar, VaspInput
 import subprocess, os
 import multiprocess as mp
+import Queue
 
 class vasp_run:
     # Single vasp run (no parallel replicas)
@@ -38,36 +39,30 @@ def submit_bulkjob(vaspruns, path_to_vasp, n_mpiprocs, n_ompthreads):
     exitcode = p.wait()
     return exitcode
     
-def vasp_bulkjob_qwatcher(q, path_to_vasp, nvaspruns, n_replicas, n_mpiprocs, n_ompthreads):
+def vasp_bulkjob_qwatcher(q, path_to_vasp, nvaspruns, n_mpiprocs, n_ompthreads, synctime=30):
     # Meant to be run as a separate process that
-    # receives vasp jobs, writes a joblist file, and
+    # receives vasp jobs in queue, writes a joblist file, and
     # submits a bulkjob in ISSP System B (SGI ICE XA).
 
-    nvaspruns_in = nvaspruns
-    n_replicas_in = n_replicas
     while True:
         vaspruns = []
         for i in range(nvaspruns):
-            vasprun = q.get(timeout=1800)
-            if vasprun == "terminate":
-                n_replicas -= 1
-                q.task_done()
-                if n_replicas < nvaspruns:
-                    nvaspruns = n_replicas
-                    break
+            # Wait synctime seconds for next job until
+            # nvaspruns jobs are received in queue.
+            # If next job doesn't arrive within synctime
+            # seconds, submit bulkjob with jobs that have
+            # already arrived but haven't been submitted
+            try:
+                vasprun = q.get(timeout=synctime))
+            except Queue.Empty:
+                break
             vaspruns.append(vasprun)
-        if n_replicas == 0:
-            # We're done for all replicas; Reset
-            nvaspruns = nvaspruns_in
-            n_replicas = n_replicas_in
-        else:
-            # We're not done yet; submit bulkjob
-            exitcode = submit_bulkjob(
-                vaspruns, path_to_vasp, n_mpiprocs, n_ompthreads)
-            for vasprun in vaspruns:
-                # vasprun[2] is the pipe end to corresponding replica
-                vasprun[2].send(exitcode)
-                vasprun[2].close()
+        exitcode = submit_bulkjob(
+            vaspruns, path_to_vasp, n_mpiprocs, n_ompthreads)
+        for vasprun in vaspruns:
+            # vasprun[2] is the pipe end to corresponding replica
+            vasprun[2].send(exitcode)
+            vasprun[2].close()
             
 class vasp_run_use_queue:
     def __init__(self, queue):
@@ -80,9 +75,6 @@ class vasp_run_use_queue:
         self.queue.put([VaspInput, output_dir, qwatcher_pipe_end])
         exitcode = my_pipe_end.recv()
         return exitcode
-
-    def terminate(self):
-        self.queue.put("terminate")
 
 if __name__ == "__main__":
     vasp_run_cmd = "mpijob /home/issp/vasp/vasp.5.3.5/bin/vasp.gamma"

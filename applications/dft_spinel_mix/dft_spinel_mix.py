@@ -62,13 +62,6 @@ class dft_spinel_mix(model):
         sys.stdout.flush()
         return results.energy
 
-    def terminate(self):
-        # Tell vasprun qwatcher that I'm done (if it exists)
-        try:
-            self.vasprun.terminate()
-        except AttributeError:
-            pass
-
     def xparam(self,spinel_config):
         '''Calculate number of B atoms in A sites'''
         asites = self.matcher_site.get_mapping(spinel_config.structure,

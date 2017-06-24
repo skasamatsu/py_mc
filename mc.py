@@ -56,13 +56,6 @@ class CanonicalMonteCarlo:
     def run(self, nsteps):
         for i in range(nsteps):
             self.MCstep()
-        # When done, run termination sequence if it exists
-        # necessary when using multiprocess.queues to run
-        # replicas of external programs
-        try:
-            self.model.terminate()
-        except AttributeError:
-            pass
 
 def MCalgo_Run_multiprocess_wrapper(MCcalc, nsteps, outdir=None):
     if outdir:
