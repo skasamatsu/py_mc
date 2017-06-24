@@ -85,7 +85,11 @@ def MultiProcessReplicaRun(MCcalc_list, nsteps, pool, subdirs=False):
             )
             for rep in range(n_replicas)
         ]
-    return [res.get(timeout=1800) for res in results]
+        results_list = [res.get(timeout=1800) for res in results]
+        for result in results_list:
+            if not result.sucessful():
+                sys.exit("Something went wrong")
+    return results_list
 
 
 def swap_configs(MCreplicas, rep, accept_count):
