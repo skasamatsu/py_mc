@@ -1,8 +1,8 @@
 from math import exp
 from random import random,randrange
-from multiprocessing import Process, Queue, Pool, TimeoutError, allow_connection_pickling
+from multiprocessing import Process, Queue, Pool, TimeoutError
 import os
-allow_connection_pickling()
+
 
 '''Defines base classes for Monte Carlo simulations'''
 
@@ -62,11 +62,13 @@ class CanonicalMonteCarlo:
 
 def MCalgo_Run_multiprocess_wrapper(MCcalc, nsteps, outdir=None):
     if outdir:
-        print "got into wrapper"
+        print("got into wrapper")
         # create subdirectory and run there
+        cwd = os.getcwd()
         if not os.path.exists(outdir): os.mkdir(outdir)
         os.chdir(outdir)
         MCcalc.run(nsteps)
+        os.chdir(cwd)
     else:
         MCcalc.run(nsteps)
     return MCcalc
@@ -74,7 +76,7 @@ def MCalgo_Run_multiprocess_wrapper(MCcalc, nsteps, outdir=None):
 def MultiProcessReplicaRun(MCcalc_list, nsteps, pool, subdirs=False):
     n_replicas = len(MCcalc_list)
     if subdirs:
-        print "subdirs"
+        print("subdirs")
         results = [
             pool.apply_async(
                 MCalgo_Run_multiprocess_wrapper,(MCcalc_list[rep],
@@ -82,9 +84,9 @@ def MultiProcessReplicaRun(MCcalc_list, nsteps, pool, subdirs=False):
             )
             for rep in range(n_replicas)
         ]
-        print "after apply_async"
+        print("after apply_async")
     else:
-        print "not subdirs"
+        print("not subdirs")
         results = [
             pool.apply_async(
                 MCalgo_Run_multiprocess_wrapper,(MCcalc_list[rep],
@@ -93,7 +95,7 @@ def MultiProcessReplicaRun(MCcalc_list, nsteps, pool, subdirs=False):
             for rep in range(n_replicas)
         ]
     results_list = [res.get(timeout=1800) for res in results]
-    print "after res.get"
+    print("after res.get")
     for result in results:
         if not result.successful():
             sys.exit("Something went wrong")

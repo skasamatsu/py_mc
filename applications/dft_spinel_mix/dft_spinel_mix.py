@@ -2,7 +2,7 @@ import numpy as np
 import random as rand
 import sys, os
 import copy
-import cPickle
+import pickle
 import multiprocessing as mp
 
 from pymatgen import Lattice, Structure, Element
@@ -14,7 +14,7 @@ from pymatgen.apps.borg.queen import BorgQueen
 import applications.dft_spinel_mix.run_vasp as rvasp
 from mc import model, CanonicalMonteCarlo, MultiProcessReplicaRun
 
-mp.allow_connection_pickling()
+
 
 class dft_spinel_mix(model):
     '''This class defines the DFT spinel model'''
@@ -42,27 +42,27 @@ class dft_spinel_mix(model):
             # Assuming that calc_history is a list of ComputedStructureEntries
             for i in range(len(calc_history)):
                 if self.matcher.fit(structure, calc_history[i].structure):
-                    print "match found in history"
+                    print("match found in history")
                     return calc_history[i].energy
-        print "before poscar"
+        print("before poscar")
         poscar = Poscar(structure.get_sorted_structure())
-        print "before vaspinput"
+        print("before vaspinput")
         vaspinput = self.base_vaspinput
         vaspinput.update({'POSCAR':poscar})
         exitcode = self.vasp_run.submit(vaspinput, os.getcwd()+'/output')
-        print "vasp exited with exit code", exitcode
+        print("vasp exited with exit code", exitcode)
         if exitcode !=0:
-            print "something went wrong"
+            print("something went wrong")
             sys.exit(1)
         #queen = BorgQueen(self.drone)
         self.queen.serial_assimilate('./output')
         results = self.queen.get_data()[-1]
         calc_history.append(results)
         spinel_config.structure = results.structure
-        print results.energy
+        print(results.energy)
         sys.stdout.flush()
         
-        return 0#results.energy
+        return results.energy
         
     def xparam(self,spinel_config):
         '''Calculate number of B atoms in A sites'''
@@ -144,7 +144,7 @@ class spinel_config:
         # Prepare a structure where 1/2 of A sites are exchanged with B sites randomly
         Asites = self.base_structure.indices_from_symbol("Mg")
         Bsites = self.base_structure.indices_from_symbol("Al")
-        flipsites = len(Asites)/2
+        flipsites = len(Asites)//2
         Aflip = rand.sample(Asites, flipsites)
         Bflip = rand.sample(Bsites, flipsites)
         self.structure = self.base_structure.copy()
@@ -175,14 +175,14 @@ if __name__ == "__main__":
     base_structure = Structure.from_file(os.path.join(os.path.dirname(__file__), "POSCAR"))#.get_primitive_structure(tolerance=0.001)
     config = spinel_config(base_structure, cellsize, "Mg", "Al")
     config.prepare_random()
-    print config.structure
+    print(config.structure)
 
     # prepare queue and qwatcher for submitting vasp jobs
     queue = mp.Manager().Queue()
     nvaspruns = 3
     n_mpiprocs = 72
     n_ompthreads = 1
-    synctime = 10
+    synctime = 5
     qwatcher = mp.Process(target=rvasp.vasp_bulkjob_qwatcher,
                           args=(queue, "/home/issp/vasp/vasp.5.3.5/bin/vasp.gamma",
                                 nvaspruns, n_mpiprocs, n_ompthreads, synctime)
@@ -202,7 +202,7 @@ if __name__ == "__main__":
     model = dft_spinel_mix(calcode="VASP", vasp_run=vasprun,  base_vaspinput=baseinput,
                            matcher=matcher, matcher_site=matcher_site, queen=queen)
 
-    print model.xparam(config)
+    print(model.xparam(config))
 
     # Prepare pool of workers for Monte Carlo replicas
     nreplicas = 3  
@@ -219,15 +219,21 @@ if __name__ == "__main__":
         kT = kB*T
         calc_list = []
         for i in range(nreplicas):
-            calc_list.append(CanonicalMonteCarlo(model, kT, copy.deepcopy(config)))
+            model = dft_spinel_mix(calcode="VASP", vasp_run=vasprun,  base_vaspinput=baseinput,
+                           matcher=matcher, matcher_site=matcher_site, queen=queen)
+            config = copy.deepcopy(config)
+            calc_list.append(CanonicalMonteCarlo(model, kT, config))
         #calc_list[0].run(2)
         #print config
         xparam_out = open("xparam.out", "w")
-        for i in range(10):
-            print "before MPRR"
+        energy_out = open("energy.out", "w")
+        for i in range(100):
+            print("before MPRR")
             calc_list = MultiProcessReplicaRun(calc_list, 1, pool, True)
-            xparam_out.write("\t".join([str(model.xparam(calc.config)) for calc in calc_list]))
+            xparam_out.write("\t".join([str(model.xparam(calc.config)) for calc in calc_list])+"\n")
+            energy_out.write("\t".join([str(calc.energy) for calc in calc_list])+"\n")
             xparam_out.flush()
+            energy_out.flush()
         #calc.run(eqsteps)
         #cPickle.dump(config, open("spinel_config.pickle", "wb"))
 
@@ -242,5 +248,6 @@ if __name__ == "__main__":
         #sys.stdout.flush()
     #calc.run(100000)
     #print config
+    qwatcher.terminate()
     
         

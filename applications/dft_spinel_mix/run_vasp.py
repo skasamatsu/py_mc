@@ -3,8 +3,8 @@ from pymatgen import Structure
 from pymatgen.io.vasp import Poscar, Kpoints, Potcar, VaspInput
 import subprocess, os
 import multiprocessing as mp
-import Queue
-mp.allow_connection_pickling()
+import queue
+
 
 class vasp_run:
     # Single vasp run (no parallel replicas)
@@ -35,6 +35,7 @@ def submit_bulkjob(vaspruns, path_to_vasp, n_mpiprocs, n_ompthreads):
     stdout = open("stdout.log", "w")
     stderr = open("stderr.log", "w")
     stdin = open(os.devnull, "r")
+    joblist.flush()
     p = subprocess.Popen("bulkjob ./joblist.txt", stdout=stdout, stderr=stderr, stdin=stdin,
                          shell=True)
     exitcode = p.wait()
@@ -55,8 +56,8 @@ def vasp_bulkjob_qwatcher(q, path_to_vasp, nvaspruns, n_mpiprocs, n_ompthreads, 
             # already arrived but haven't been submitted
             try:
                 vasprun = q.get(timeout=synctime)
-                print "got q"
-            except Queue.Empty:
+                print("got q")
+            except queue.Empty:
                 break
             vaspruns.append(vasprun)
         if len(vaspruns) == 0: continue 
@@ -72,13 +73,12 @@ class vasp_run_use_queue:
         self.queue = queue
         
     def submit(self, VaspInput, output_dir):
-        mp.allow_connection_pickling()
         # submit job to qwatcher
         # send pipe to get job status
         my_pipe_end, qwatcher_pipe_end = mp.Pipe()
-        print "got here in vasp_run_use_queue"
+        print("got here in vasp_run_use_queue")
         self.queue.put([VaspInput, output_dir, qwatcher_pipe_end])
-        print "put in vasp_run_use_queue"
+        print("put in vasp_run_use_queue")
         exitcode = my_pipe_end.recv()
         return exitcode
 
@@ -86,7 +86,7 @@ if __name__ == "__main__":
     vasp_run_cmd = "mpijob /home/issp/vasp/vasp.5.3.5/bin/vasp.gamma"
     vaspinput = VaspInput.from_directory('baseinput')
     p = vasp_run(vaspinput, 'output', vasp_run_cmd)
-    print "vasp exited with exit code", p.wait()
+    print("vasp exited with exit code", p.wait())
 
 
     
