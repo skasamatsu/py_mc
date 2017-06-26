@@ -135,7 +135,7 @@ if __name__ == "__main__":
         energy_line = "\t".join([str(MCreplica.energy) for MCreplica in RXcalc.MCreplicas])
         energy_hist_file.write(energy_line+"\n")
         energy_hist_file.flush()
-    print RXcalc.MCreplicas[0].config
+    print(RXcalc.MCreplicas[0].config)
 ##
 
     
@@ -165,7 +165,7 @@ if __name__ == "__main__":
             current_config = calc.config
             energy_expect += model.energy(current_config)
             magnet_expect += abs(model.magnetization(current_config))
-        print kT, energy_expect/mcloop, magnet_expect/mcloop
+        print(kT, energy_expect/mcloop, magnet_expect/mcloop)
         sys.stdout.flush()
     #calc.run(100000)
     #print config

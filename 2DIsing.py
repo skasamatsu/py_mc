@@ -100,14 +100,14 @@ if __name__ == "__main__":
         calc = CanonicalMonteCarlo(model, kT, config)
         calc.run(eqsteps)
 
-        mcloop = mcsteps/sample_frequency
+        mcloop = mcsteps//sample_frequency
         for i in range(mcloop):
             calc.run(sample_frequency)
             #print model.energy(config), model.magnetization(config)
             current_config = calc.config
             energy_expect += model.energy(current_config)
             magnet_expect += abs(model.magnetization(current_config))
-        print kT, energy_expect/mcloop, magnet_expect/mcloop
+        print(kT, energy_expect/mcloop, magnet_expect/mcloop)
         sys.stdout.flush()
     #calc.run(100000)
     #print config
