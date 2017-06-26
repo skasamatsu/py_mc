@@ -2,8 +2,9 @@ import numpy as np
 from pymatgen import Structure
 from pymatgen.io.vasp import Poscar, Kpoints, Potcar, VaspInput
 import subprocess, os
-import multiprocess as mp
+import multiprocessing as mp
 import Queue
+mp.allow_connection_pickling()
 
 class vasp_run:
     # Single vasp run (no parallel replicas)
@@ -16,14 +17,14 @@ class vasp_run:
         stdout = open("stdout.log", "w")
         stderr = open("stderr.log", "w")
         stdin = open(os.devnull, "r")
-        p = subprocess.Popen(vasp_run_cmd, stdout=stdout, stderr=stderr, stdin=stdin, shell=True)
+        p = subprocess.Popen(self.vasp_run_cmd, stdout=stdout, stderr=stderr, stdin=stdin, shell=True)
         os.chdir(cwd)
         exitcode = p.wait()
         return exitcode
 
 def submit_bulkjob(vaspruns, path_to_vasp, n_mpiprocs, n_ompthreads):
     joblist = open("joblist.txt", "w")
-    if n_ompthreads =! 0:
+    if n_ompthreads != 0:
         progtype = "H"+str(n_ompthreads)
     else:
         progtype = "M"
@@ -53,10 +54,12 @@ def vasp_bulkjob_qwatcher(q, path_to_vasp, nvaspruns, n_mpiprocs, n_ompthreads, 
             # seconds, submit bulkjob with jobs that have
             # already arrived but haven't been submitted
             try:
-                vasprun = q.get(timeout=synctime))
+                vasprun = q.get(timeout=synctime)
+                print "got q"
             except Queue.Empty:
                 break
             vaspruns.append(vasprun)
+        if len(vaspruns) == 0: continue 
         exitcode = submit_bulkjob(
             vaspruns, path_to_vasp, n_mpiprocs, n_ompthreads)
         for vasprun in vaspruns:
@@ -69,10 +72,13 @@ class vasp_run_use_queue:
         self.queue = queue
         
     def submit(self, VaspInput, output_dir):
+        mp.allow_connection_pickling()
         # submit job to qwatcher
         # send pipe to get job status
         my_pipe_end, qwatcher_pipe_end = mp.Pipe()
+        print "got here in vasp_run_use_queue"
         self.queue.put([VaspInput, output_dir, qwatcher_pipe_end])
+        print "put in vasp_run_use_queue"
         exitcode = my_pipe_end.recv()
         return exitcode
 

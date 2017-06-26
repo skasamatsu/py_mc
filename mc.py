@@ -1,6 +1,8 @@
 from math import exp
 from random import random,randrange
-from multiprocessing import Process, Queue, Pool, TimeoutError
+from multiprocessing import Process, Queue, Pool, TimeoutError, allow_connection_pickling
+import os
+allow_connection_pickling()
 
 '''Defines base classes for Monte Carlo simulations'''
 
@@ -37,7 +39,7 @@ class CanonicalMonteCarlo:
     def __init__(self, model, kT, config):
         self.model = model
         self.config = config
-        self.energy = self.model.energy(self.config)
+        #self.energy = self.model.energy(self.config)
         self.kT = kT
 
     def MCstep(self):
@@ -54,11 +56,13 @@ class CanonicalMonteCarlo:
                 #print "trial accepted"
 
     def run(self, nsteps):
+        self.energy = self.model.energy(self.config)
         for i in range(nsteps):
             self.MCstep()
 
 def MCalgo_Run_multiprocess_wrapper(MCcalc, nsteps, outdir=None):
     if outdir:
+        print "got into wrapper"
         # create subdirectory and run there
         if not os.path.exists(outdir): os.mkdir(outdir)
         os.chdir(outdir)
@@ -70,6 +74,7 @@ def MCalgo_Run_multiprocess_wrapper(MCcalc, nsteps, outdir=None):
 def MultiProcessReplicaRun(MCcalc_list, nsteps, pool, subdirs=False):
     n_replicas = len(MCcalc_list)
     if subdirs:
+        print "subdirs"
         results = [
             pool.apply_async(
                 MCalgo_Run_multiprocess_wrapper,(MCcalc_list[rep],
@@ -77,7 +82,9 @@ def MultiProcessReplicaRun(MCcalc_list, nsteps, pool, subdirs=False):
             )
             for rep in range(n_replicas)
         ]
+        print "after apply_async"
     else:
+        print "not subdirs"
         results = [
             pool.apply_async(
                 MCalgo_Run_multiprocess_wrapper,(MCcalc_list[rep],
@@ -85,10 +92,11 @@ def MultiProcessReplicaRun(MCcalc_list, nsteps, pool, subdirs=False):
             )
             for rep in range(n_replicas)
         ]
-        results_list = [res.get(timeout=1800) for res in results]
-        for result in results_list:
-            if not result.sucessful():
-                sys.exit("Something went wrong")
+    results_list = [res.get(timeout=1800) for res in results]
+    print "after res.get"
+    for result in results:
+        if not result.successful():
+            sys.exit("Something went wrong")
     return results_list
 
 

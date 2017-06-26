@@ -3,6 +3,7 @@ import random as rand
 import sys, os
 import copy
 import cPickle
+import multiprocessing as mp
 
 from pymatgen import Lattice, Structure, Element
 from pymatgen.io.vasp import Poscar, VaspInput
@@ -10,31 +11,29 @@ from pymatgen.analysis.structure_matcher import StructureMatcher, FrameworkCompa
 from pymatgen.apps.borg.hive import SimpleVaspToComputedEntryDrone
 from pymatgen.apps.borg.queen import BorgQueen
 #from mc.applications.dft_spinel_mix.dft_spinel_mix import dft_spinel_mix, spinel_config
-from applications.dft_spinel_mix.run_vasp import vasp_run
-from mc import model, CanonicalMonteCarlo
+import applications.dft_spinel_mix.run_vasp as rvasp
+from mc import model, CanonicalMonteCarlo, MultiProcessReplicaRun
 
+mp.allow_connection_pickling()
 
 class dft_spinel_mix(model):
     '''This class defines the DFT spinel model'''
 
     model_name = "dft_spinel"
     
-    def __init__(self, calcode, ltol, vasp_run):
+    def __init__(self, calcode, vasp_run, base_vaspinput, matcher, matcher_site,
+                 queen):
         self.calcode = calcode
-        self.matcher = StructureMatcher(ltol=ltol, primitive_cell=False)
-        FrameWorkComparatorObject = FrameworkComparator()
-        self.matcher_site = StructureMatcher(ltol=ltol, primitive_cell=False,
-                                             allow_subset=True,
-                                             comparator=FrameWorkComparatorObject)
+        self.matcher = matcher
+        self.matcher_site = matcher_site
         self.drone = SimpleVaspToComputedEntryDrone(inc_structure=True)
-        self.queen = BorgQueen(self.drone)
+        self.queen = queen
+        self.base_vaspinput = base_vaspinput
         self.vasp_run = vasp_run
-        #self.base_structure = Poscar.from_file("MgAl2O4.vasp")
-        #self.base_structure.make_supercell(
-        #    [supercellsize,supercellsize,supercellsize])
-
+        
     def energy(self, spinel_config):
         ''' Calculate total energy of the spinel model'''
+        
         structure = spinel_config.structure
         #inputdir = spinel_config.inputdir
         calc_history = spinel_config.calc_history
@@ -45,25 +44,29 @@ class dft_spinel_mix(model):
                 if self.matcher.fit(structure, calc_history[i].structure):
                     print "match found in history"
                     return calc_history[i].energy
+        print "before poscar"
         poscar = Poscar(structure.get_sorted_structure())
-        vaspinput = VaspInput.from_directory(os.path.join(os.path.dirname(__file__), "baseinput"))
+        print "before vaspinput"
+        vaspinput = self.base_vaspinput
         vaspinput.update({'POSCAR':poscar})
-        exitcode = vasp_run.submit(vaspinput, os.getcwd()+'/output')
+        exitcode = self.vasp_run.submit(vaspinput, os.getcwd()+'/output')
         print "vasp exited with exit code", exitcode
         if exitcode !=0:
             print "something went wrong"
             sys.exit(1)
-        queen = BorgQueen(self.drone)
-        queen.serial_assimilate('./output')
-        results = queen.get_data()[0]
+        #queen = BorgQueen(self.drone)
+        self.queen.serial_assimilate('./output')
+        results = self.queen.get_data()[-1]
         calc_history.append(results)
         spinel_config.structure = results.structure
         print results.energy
         sys.stdout.flush()
-        return results.energy
-
+        
+        return 0#results.energy
+        
     def xparam(self,spinel_config):
         '''Calculate number of B atoms in A sites'''
+        
         asites = self.matcher_site.get_mapping(spinel_config.structure,
                                                spinel_config.Asite_struct)
         #print asites
@@ -75,10 +78,12 @@ class dft_spinel_mix(model):
                 x += 1
         x /= float(len(asites))
         return x
-
+        
+            
     def trialstep(self, spinel_config):
         # Get energy for the current step (vasp shouldn't run except for first step
         # because result should be in the calc_history
+        
         e0 = self.energy(spinel_config)
         
         # choose one A atom and one B atom randomly and flip
@@ -120,8 +125,8 @@ class dft_spinel_mix(model):
 class spinel_config:
     '''This class defines the disordered spinel model configuration'''
 
-    def __init__(self, cellsize, Aspecie, Bspecie):
-        self.base_structure = Structure.from_file(os.path.join(os.path.dirname(__file__), "POSCAR"))#.get_primitive_structure(tolerance=0.001)
+    def __init__(self, base_structure, cellsize, Aspecie, Bspecie):
+        self.base_structure = base_structure
         self.base_structure.make_supercell([cellsize, cellsize, cellsize])
         self.Asite_struct = self.base_structure.copy()
         self.Asite_struct.remove_species(["O", "Al"])
@@ -161,39 +166,80 @@ class spinel_config:
 
 if __name__ == "__main__":
     kB = 8.6173e-5
-    cellsize = 1
     eqsteps = 300
     mcsteps = 10000
     sample_frequency = 100
-    config = spinel_config(cellsize, "Mg", "Al")
+
+    # prepare spinel_config
+    cellsize = 1
+    base_structure = Structure.from_file(os.path.join(os.path.dirname(__file__), "POSCAR"))#.get_primitive_structure(tolerance=0.001)
+    config = spinel_config(base_structure, cellsize, "Mg", "Al")
     config.prepare_random()
     print config.structure
-    
-    vasp_run_cmd = "mpijob /home/issp/vasp/vasp.5.3.5/bin/vasp.gamma"
-    model = dft_spinel_mix(calcode="VASP", ltol=0.2, vasp_run_cmd=vasp_run_cmd)
+
+    # prepare queue and qwatcher for submitting vasp jobs
+    queue = mp.Manager().Queue()
+    nvaspruns = 3
+    n_mpiprocs = 72
+    n_ompthreads = 1
+    synctime = 10
+    qwatcher = mp.Process(target=rvasp.vasp_bulkjob_qwatcher,
+                          args=(queue, "/home/issp/vasp/vasp.5.3.5/bin/vasp.gamma",
+                                nvaspruns, n_mpiprocs, n_ompthreads, synctime)
+                          )
+
+    # prepare dft_spinel_mix model
+    vasprun = rvasp.vasp_run_use_queue(queue)
+    #rvasp.vasp_run("mpijob /home/issp/vasp/vasp.5.3.5/bin/vasp.gamma")# rvasp.vasp_run_use_queue(queue)
+    baseinput = VaspInput.from_directory("baseinput") #(os.path.join(os.path.dirname(__file__), "baseinput"))
+    ltol=0.2
+    matcher = StructureMatcher(ltol=ltol, primitive_cell=False)
+    matcher_site = StructureMatcher(ltol=ltol, primitive_cell=False,
+                                             allow_subset=True,
+                                             comparator=FrameworkComparator())
+    drone = SimpleVaspToComputedEntryDrone(inc_structure=True)
+    queen = BorgQueen(drone)
+    model = dft_spinel_mix(calcode="VASP", vasp_run=vasprun,  base_vaspinput=baseinput,
+                           matcher=matcher, matcher_site=matcher_site, queen=queen)
+
     print model.xparam(config)
-    sys.exit()
+
+    # Prepare pool of workers for Monte Carlo replicas
+    nreplicas = 3  
+    pool = mp.Pool(processes=nreplicas)
+    #sys.exit()
+
+    # Start qwatcher
+    qwatcher.start()
     
     for T in [1500]:
         energy_expect = 0
         xparam_expect = 0
         
         kT = kB*T
+        calc_list = []
+        for i in range(nreplicas):
+            calc_list.append(CanonicalMonteCarlo(model, kT, copy.deepcopy(config)))
+        #calc_list[0].run(2)
+        #print config
+        xparam_out = open("xparam.out", "w")
+        for i in range(10):
+            print "before MPRR"
+            calc_list = MultiProcessReplicaRun(calc_list, 1, pool, True)
+            xparam_out.write("\t".join([str(model.xparam(calc.config)) for calc in calc_list]))
+            xparam_out.flush()
+        #calc.run(eqsteps)
+        #cPickle.dump(config, open("spinel_config.pickle", "wb"))
 
-        #print config        
-        calc = CanonicalMonteCarlo(model, kT, config)
-        calc.run(eqsteps)
-        cPickle.dump(config, open("spinel_config.pickle", "wb"))
-
-        mcloop = mcsteps/sample_frequency
+        #mcloop = mcsteps/sample_frequency
         #for i in range(mcloop):
             #calc.run(sample_frequency)
             #print model.energy(config), model.magnetization(config)
             #energy_expect += model.energy(config)
             #magnet_expect += abs(model.magnetization(config))
         #print kT, energy_expect/mcloop, xparam_expect/mcloop
-        print model.xparam(config)
-        sys.stdout.flush()
+        #print model.xparam(config)
+        #sys.stdout.flush()
     #calc.run(100000)
     #print config
     
