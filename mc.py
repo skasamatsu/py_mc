@@ -146,7 +146,7 @@ class TemperatureReplicaExchange:
         
     def run(self, nsteps, attempt_frequency, pool, subdirs=False):
         self.accept_count = 0
-        outerloop = nsteps/attempt_frequency
+        outerloop = nsteps//attempt_frequency
         for i in range(outerloop):
             self.MCreplicas = MultiProcessReplicaRun(self.MCreplicas, attempt_frequency, pool, subdirs)
             self.Xtrial()
