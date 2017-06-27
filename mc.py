@@ -33,14 +33,20 @@ class model:
     def newconfig(self, config, dconfig):
         '''Build new configuration from config and dconfig.'''
         return config
-        
+
+def write_energy(MCcalc):
+    with open("energy.out", "a") as f:
+        f.write(str(MCcalc.energy)+"\n")
+        f.flush()
+    
 class CanonicalMonteCarlo:
 
-    def __init__(self, model, kT, config):
+    def __init__(self, model, kT, config, writefunc=write_energy):
         self.model = model
         self.config = config
-        #self.energy = self.model.energy(self.config)
+        self.energy = self.model.energy(self.config)
         self.kT = kT
+        if writefunc: self.writefunc = writefunc
 
     def MCstep(self):
         dconfig, dE  = self.model.trialstep(self.config)
@@ -55,32 +61,39 @@ class CanonicalMonteCarlo:
                 self.energy += dE
                 #print "trial accepted"
 
-    def run(self, nsteps):
-        self.energy = self.model.energy(self.config)
-        for i in range(nsteps):
-            self.MCstep()
+    def run(self, nsteps, sample_frequency=0):
+        if sample_frequency:
+            nloop = nsteps//sample_frequency
+            for i in range(nloop):
+                for i in range(sample_frequency):
+                    self.MCstep()
+                self.writefunc(self)
+        else:
+            for i in range(nsteps):
+                self.MCstep()
 
-def MCalgo_Run_multiprocess_wrapper(MCcalc, nsteps, outdir=None):
+                
+def MCalgo_Run_multiprocess_wrapper(MCcalc, nsteps, sample_frequency=0, outdir=None):
     if outdir:
         print("got into wrapper")
         # create subdirectory and run there
         cwd = os.getcwd()
         if not os.path.exists(outdir): os.mkdir(outdir)
         os.chdir(outdir)
-        MCcalc.run(nsteps)
+        MCcalc.run(nsteps, sample_frequency)
         os.chdir(cwd)
     else:
         MCcalc.run(nsteps)
     return MCcalc
 
-def MultiProcessReplicaRun(MCcalc_list, nsteps, pool, subdirs=False):
+def MultiProcessReplicaRun(MCcalc_list, nsteps, pool, sample_frequency=0, subdirs=False):
     n_replicas = len(MCcalc_list)
     if subdirs:
         print("subdirs")
         results = [
             pool.apply_async(
                 MCalgo_Run_multiprocess_wrapper,(MCcalc_list[rep],
-                                                 nsteps, str(rep))
+                                                 nsteps, sample_frequency, str(rep))
             )
             for rep in range(n_replicas)
         ]
@@ -90,7 +103,7 @@ def MultiProcessReplicaRun(MCcalc_list, nsteps, pool, subdirs=False):
         results = [
             pool.apply_async(
                 MCalgo_Run_multiprocess_wrapper,(MCcalc_list[rep],
-                                                 nsteps)
+                                                 nsteps, sample_frequency)
             )
             for rep in range(n_replicas)
         ]
