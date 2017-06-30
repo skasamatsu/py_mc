@@ -20,7 +20,7 @@ class model:
         '''Calculate energy of configuration: input: config'''
         return 0.0
 
-    def trialstep(self, config):
+    def trialstep(self, config, energy):
         '''Define a trial step on config. Returns dconfig, which can contain the minimal information for
         constructing the trial configuration from config to be used in newconfig(). Make sure that
         config is the same upon entry and exit'''
@@ -44,12 +44,11 @@ class CanonicalMonteCarlo:
     def __init__(self, model, kT, config, writefunc=write_energy):
         self.model = model
         self.config = config
-        self.energy = self.model.energy(self.config)
         self.kT = kT
         if writefunc: self.writefunc = writefunc
 
     def MCstep(self):
-        dconfig, dE  = self.model.trialstep(self.config)
+        dconfig, dE  = self.model.trialstep(self.config, self.energy)
         if dE < 0.0:
             self.config = self.model.newconfig(self.config, dconfig)
             self.energy += dE
@@ -62,6 +61,7 @@ class CanonicalMonteCarlo:
                 #print "trial accepted"
 
     def run(self, nsteps, sample_frequency=0):
+        self.energy = self.model.energy(self.config)
         if sample_frequency:
             nloop = nsteps//sample_frequency
             for i in range(nloop):
@@ -83,7 +83,7 @@ def MCalgo_Run_multiprocess_wrapper(MCcalc, nsteps, sample_frequency=0, outdir=N
         MCcalc.run(nsteps, sample_frequency)
         os.chdir(cwd)
     else:
-        MCcalc.run(nsteps)
+        MCcalc.run(nsteps, sample_frequency)
     return MCcalc
 
 def MultiProcessReplicaRun(MCcalc_list, nsteps, pool, sample_frequency=0, subdirs=False):
@@ -129,7 +129,7 @@ def swap_configs(MCreplicas, rep, accept_count):
             
 class TemperatureReplicaExchange:
 
-    def __init__(self, model, kTs, configs, MCalgo, swap_algo=swap_configs):
+    def __init__(self, model, kTs, configs, MCalgo, swap_algo=swap_configs, writefunc=write_energy):
         assert len(kTs) == len(configs)
         self.model = model
         self.kTs = kTs
@@ -138,8 +138,10 @@ class TemperatureReplicaExchange:
         self.MCreplicas = []
         self.accept_count = 0
         self.swap_algo = swap_algo
+        self.writefunc = writefunc
+        self.configs = configs
         for i in range(self.n_replicas):
-            self.MCreplicas.append(MCalgo(model, kTs[i], configs[i]))
+            self.MCreplicas.append(MCalgo(model, kTs[i], configs[i], writefunc))
 
     def Xtrial(self):
         # pick a replica
@@ -152,19 +154,23 @@ class TemperatureReplicaExchange:
         if delta < 0.0:
             self.MCreplicas, self.accept_count = self.swap_algo(self.MCreplicas,
                                                            rep, self.accept_count)
+            print("RXtrial accepted")
         else:
             accept_probability = exp(-delta)
             #print accept_probability, "accept prob"
             if random() <= accept_probability:
                 self.MCreplicas, self.accept_count = self.swap_algo(self.MCreplicas,
                                                            rep, self.accept_count)
+                print("RXtrial accepted")
+            else:
+                print("RXtrial rejected")
         
-    def run(self, nsteps, attempt_frequency, pool, subdirs=False):
+    def run(self, nsteps, RXtrial_frequency, pool, sample_frequency=0, subdirs=False):
         self.accept_count = 0
-        outerloop = nsteps//attempt_frequency
+        outerloop = nsteps//RXtrial_frequency
         for i in range(outerloop):
-            self.MCreplicas = MultiProcessReplicaRun(self.MCreplicas, attempt_frequency, pool, subdirs)
+            self.MCreplicas = MultiProcessReplicaRun(self.MCreplicas, RXtrial_frequency, pool, sample_frequency, subdirs)
             self.Xtrial()
-            #self.configs = [MCreplica.config for MCreplica in self.MCreplicas]
+        self.configs = [MCreplica.config for MCreplica in self.MCreplicas]
         #print self.accept_count
         #self.accept_count = 0

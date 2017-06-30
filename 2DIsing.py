@@ -25,7 +25,9 @@ class ising2D(model):
         '''Calculate magnetization'''
         return ising2D_config.config.sum()
 
-    def trialstep(self, ising2D_config):
+    def trialstep(self, ising2D_config, energy):
+        # energy is just a placeholder and isn't used
+        # here
         # choose x,y randomly
         x = rand.randrange(ising2D_config.lenX)
         y = rand.randrange(ising2D_config.lenY)
@@ -90,7 +92,7 @@ if __name__ == "__main__":
     config.prepare_random()
     model = ising2D(J)
 
-    for kT in np.arange(5, 0.5, -0.05):
+    for kT in [5]: #np.arange(5, 0.5, -0.05):
         energy_expect = 0
         magnet_expect = 0
         
