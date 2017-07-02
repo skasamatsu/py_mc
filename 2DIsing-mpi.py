@@ -85,21 +85,23 @@ class ising2D_config:
 
 
 if __name__ == "__main__":
-    nprocs=24
+    nprocs=432
 
     J = -1.0
     model = ising2D(J)
     
-    size = 10
+    size = 30
     #eqsteps = 100000
-    nsteps = 1000000
+    nsteps = 10000000
     sample_frequency = 1000 #size*size
+    RXtrial_frequency = 2
     config = ising2D_config(size,size)
 
     config.prepare_random()
     configs = [copy.deepcopy(config) for i in range(nprocs)]
 
-    kTs = [0.2*i for i in range(1,25)]
-    parallelCalc = ParallelMC(CanonicalMonteCarlo, model, configs, kTs, writefunc=write_energy, subdirs=True)
-    parallelCalc.run(nsteps, sample_frequency)
+    kTs = [0.6+0.005*i for i in range(432)]
+    #parallelCalc = ParallelMC(CanonicalMonteCarlo, model, configs, kTs, writefunc=write_energy, subdirs=True)
+    parallelCalc = TemperatureRX_MPI(CanonicalMonteCarlo, model, configs, kTs)
+    parallelCalc.run(nsteps, RXtrial_frequency, sample_frequency)
     

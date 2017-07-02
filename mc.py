@@ -38,6 +38,10 @@ def write_energy(MCcalc):
     with open("energy.out", "a") as f:
         f.write(str(MCcalc.energy)+"\n")
         f.flush()
+
+def write_energy_Temp(MCcalc, outputfile=open("energy.out", "a")):
+    outputfile.write(str(MCcalc.energy)+"\t"+str(MCcalc.kT)+"\n")
+    outputfile.flush()
     
 class CanonicalMonteCarlo:
 
@@ -45,7 +49,8 @@ class CanonicalMonteCarlo:
         self.model = model
         self.config = config
         self.kT = kT
-        if writefunc: self.writefunc = writefunc
+        self.energy = self.model.energy(self.config)
+        self.writefunc = writefunc
 
     def MCstep(self):
         dconfig, dE  = self.model.trialstep(self.config, self.energy)
@@ -61,7 +66,6 @@ class CanonicalMonteCarlo:
                 #print "trial accepted"
 
     def run(self, nsteps, sample_frequency=0):
-        self.energy = self.model.energy(self.config)
         if sample_frequency:
             nloop = nsteps//sample_frequency
             for i in range(nloop):
