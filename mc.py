@@ -65,16 +65,20 @@ class CanonicalMonteCarlo:
                 self.energy += dE
                 #print "trial accepted"
 
-    def run(self, nsteps, sample_frequency=0):
+    def run(self, nsteps, sample_frequency=0, observefunc=lambda *args: None):
         if sample_frequency:
             nloop = nsteps//sample_frequency
+            observables = 0
             for i in range(nloop):
                 for i in range(sample_frequency):
                     self.MCstep()
                 self.writefunc(self)
+                observables += observefunc(self)
+            return observables/nloop
         else:
             for i in range(nsteps):
                 self.MCstep()
+
 
                 
 def MCalgo_Run_multiprocess_wrapper(MCcalc, nsteps, sample_frequency=0, outdir=None):

@@ -26,7 +26,7 @@ class ParallelMC(object):
         mytemp = kTs[self.rank]
         self.mycalc = MCalgo(model, mytemp, myconfig, writefunc)
         
-    def run(self, nsteps, sample_frequency):
+    def run(self, nsteps, sample_frequency, observefunc=lambda *args: None):
         if self.subdirs:
             # make working directory for this rank
             try:
@@ -34,9 +34,13 @@ class ParallelMC(object):
             except FileExistsError:
                 pass
             os.chdir(str(self.rank))
-        self.mycalc.run(nsteps, sample_frequency)
+        observables = self.mycalc.run(nsteps, sample_frequency, observefunc)
         pickle.dump(self.mycalc.config, open("config.pickle","wb"))
         if self.subdirs: os.chdir("../")
+        if sample_frequency:
+            obs_buffer = np.empty([self.procs,len(observables)])
+            self.comm.Allgather(observables, obs_buffer)
+            return obs_buffer
 
         
 class TemperatureRX_MPI(ParallelMC):
@@ -93,7 +97,8 @@ class TemperatureRX_MPI(ParallelMC):
         self.mycalc.kT = self.kTs[self.myTindex()]
 
     
-    def run(self, nsteps, RXtrial_frequency, sample_frequency, subdirs=True):
+    def run(self, nsteps, RXtrial_frequency, sample_frequency,
+            observfunc=lambda *args: None, subdirs=True):
         if subdirs:
             try:
                 os.mkdir(str(self.rank))
@@ -101,8 +106,14 @@ class TemperatureRX_MPI(ParallelMC):
                 pass     
             os.chdir(str(self.rank))
         self.accept_count = 0
+        if hasattr(observfunc(self.mycalc),"__iter__"):
+            obs_len = len(observfunc(self.mycalc))
+            obs = np.zeros([len(self.kTs), obs_len])
+        nsample = 0
         XCscheme = 0
         output = open("energy.dat", "a")
+        if not sample_frequency:
+            sample_frequency = float("inf")
         for i in range(nsteps):
             self.mycalc.MCstep()
             if i%RXtrial_frequency == 0:
@@ -110,10 +121,21 @@ class TemperatureRX_MPI(ParallelMC):
                 XCscheme = (XCscheme+1)%2
             if i%sample_frequency == 0:
                 self.mycalc.writefunc(self.mycalc, output)
-
+                obs[self.myTindex()] += observfunc(self.mycalc)
+                nsample += 1
+        
         pickle.dump(self.mycalc.config, open("calc.pickle","wb"))
         
         if subdirs: os.chdir("../")
 
         if self.rank == 0:
             pickle.dump(self.T_to_rank, open("T_to_rank.pickle","wb"))
+
+        if nsample != 0:
+            obs = np.array(obs)
+            obs_buffer = np.empty(obs.shape)
+            obs /= nsample
+            self.comm.Allreduce(obs, obs_buffer, op=MPI.SUM)
+            return obs_buffer
+        
+        
