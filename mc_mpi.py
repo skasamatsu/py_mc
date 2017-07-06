@@ -52,6 +52,11 @@ class TemperatureRX_MPI(ParallelMC):
         #self.energyRankMap[i] holds the energy of the ith rank
         self.T_to_rank = np.arange(0, self.procs, 1)
         # self.T_to_rank[i] holds the rank of the ith temperature
+
+    def reload(self):
+        self.T_to_rank = pickle.load(open("T_to_rank.pickle","rb"))
+        self.mycalc.kT = self.kTs[self.myTindex()]
+        self.mycalc.config = pickle.load(open(str(self.rank)+"/calc.pickle","rb"))
         
     def myTindex(self):
         for i in range(self.nreplicas):
@@ -62,6 +67,7 @@ class TemperatureRX_MPI(ParallelMC):
 
     def Xtrial(self, XCscheme=-1):
         # Gather energy to root node
+        #print(type(self.mycalc.energy))
         self.comm.Gather([self.mycalc.energy, MPI.DOUBLE], self.energyRankMap, root=0)
         if self.rank == 0:
             if XCscheme == 0 or XCscheme == 1:
@@ -106,12 +112,13 @@ class TemperatureRX_MPI(ParallelMC):
                 pass     
             os.chdir(str(self.rank))
         self.accept_count = 0
-        if hasattr(observfunc(self.mycalc),"__iter__"):
-            obs_len = len(observfunc(self.mycalc))
+        self.mycalc.energy = self.mycalc.model.energy(self.mycalc.config)
+        if hasattr(observfunc(self.mycalc,open(os.devnull,"w")),"__iter__"):
+            obs_len = len(observfunc(self.mycalc,open(os.devnull,"w")))
             obs = np.zeros([len(self.kTs), obs_len])
         nsample = 0
         XCscheme = 0
-        output = open("energy.dat", "a")
+        output = open("obs.dat", "a")
         if not sample_frequency:
             sample_frequency = float("inf")
         for i in range(nsteps):
@@ -120,8 +127,7 @@ class TemperatureRX_MPI(ParallelMC):
                 self.Xtrial(XCscheme)
                 XCscheme = (XCscheme+1)%2
             if i%sample_frequency == 0:
-                self.mycalc.writefunc(self.mycalc, output)
-                obs[self.myTindex()] += observfunc(self.mycalc)
+                obs[self.myTindex()] += observfunc(self.mycalc, output)
                 nsample += 1
         
         pickle.dump(self.mycalc.config, open("calc.pickle","wb"))
