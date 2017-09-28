@@ -49,7 +49,7 @@ class CanonicalMonteCarlo:
         self.model = model
         self.config = config
         self.kT = kT
-        self.energy = self.model.energy(self.config)
+        #self.energy = self.model.energy(self.config)
         self.writefunc = writefunc
 
     def MCstep(self):
@@ -69,6 +69,7 @@ class CanonicalMonteCarlo:
         if sample_frequency:
             nloop = nsteps//sample_frequency
             observables = 0
+            self.energy = self.model.energy(self.config)
             for i in range(nloop):
                 for i in range(sample_frequency):
                     self.MCstep()

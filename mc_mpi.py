@@ -6,19 +6,19 @@ import pickle
 from mc import *
 
 class ParallelMC(object):
-    def __init__(self, MCalgo, model, configs, kTs, writefunc=write_energy, subdirs=True):
-        self.comm = MPI.COMM_WORLD
+    def __init__(self, comm, MCalgo, model, configs, kTs, writefunc=write_energy, subdirs=True):
+        self.comm = comm
         self.rank = self.comm.Get_rank()
         self.procs = self.comm.Get_size()
         self.kTs = kTs
-        self.nreplicas = len(configs)
         self.model = model
         self.subdirs = subdirs
+        self.nreplicas = len(configs)
 
         if not(self.procs == self.nreplicas == len(self.kTs)):
             if self.rank==0:
-                print("ERROR: You have to set the number of replicas equal to the "
-                "number of processes equal to the number of temperatures"
+                print("ERROR: You have to set the number of replicas equal to the"
+                      +"number of temperatures equal to the number of processes"
                 )
             sys.exit(1)
 
@@ -44,8 +44,8 @@ class ParallelMC(object):
 
         
 class TemperatureRX_MPI(ParallelMC):
-    def __init__(self, MCalgo, model, configs, kTs, swap_algo=swap_configs, writefunc=write_energy_Temp, subdirs=True):
-        super(TemperatureRX_MPI, self).__init__(MCalgo, model, configs, kTs, writefunc, subdirs)
+    def __init__(self, comm, MCalgo, model, configs, kTs, swap_algo=swap_configs, writefunc=write_energy_Temp, subdirs=True):
+        super(TemperatureRX_MPI, self).__init__(comm, MCalgo, model, configs, kTs, writefunc, subdirs)
         self.swap_algo = swap_algo
         self.betas = 1.0/np.array(kTs)
         self.energyRankMap = np.zeros(len(kTs))
@@ -123,6 +123,7 @@ class TemperatureRX_MPI(ParallelMC):
             sample_frequency = float("inf")
         for i in range(nsteps):
             self.mycalc.MCstep()
+            sys.stdout.flush()
             if i%RXtrial_frequency == 0:
                 self.Xtrial(XCscheme)
                 XCscheme = (XCscheme+1)%2

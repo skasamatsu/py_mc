@@ -12,7 +12,7 @@ from pymatgen.apps.borg.hive import SimpleVaspToComputedEntryDrone
 from pymatgen.apps.borg.queen import BorgQueen
 #from mc.applications.dft_spinel_mix.dft_spinel_mix import dft_spinel_mix, spinel_config
 import applications.dft_spinel_mix.run_vasp as rvasp
-from mc import model, CanonicalMonteCarlo, MultiProcessReplicaRun
+from mc import model, CanonicalMonteCarlo, MultiProcessReplicaRun, TemperatureReplicaExchange
 
 
 
@@ -36,6 +36,10 @@ class dft_spinel_mix(model):
         
         structure = spinel_config.structure
         #inputdir = spinel_config.inputdir
+        
+        if len(spinel_config.calc_history) == 20:
+            print("truncate calc_history")
+            del spinel_config.calc_history[0:10]
         calc_history = spinel_config.calc_history
         if calc_history:
             # Try to avoid doing dft calculation for the same structure.
@@ -151,6 +155,9 @@ class spinel_config:
         for i in range(flipsites):
             self.structure[Aflip[i]] = self.Bspecie
             self.structure[Bflip[i]] = self.Aspecie
+
+    def prepare_ordered(self):
+        self.structure = self.base_structure.copy()
         
     #def __str__(self):
     #    s = ""
@@ -162,6 +169,16 @@ class spinel_config:
     #                s += "+"
     #        s += "\n"
     #    return s
+
+def writeEandX(calc):
+    with open("energy.out", "a") as f:
+        f.write(str(calc.energy)+"\n")
+        f.flush()
+    with open("xparam.out", "a") as f:
+        xparam = calc.model.xparam(calc.config)
+        f.write(str(xparam)+"\n")
+        f.flush()
+        
 
 
 if __name__ == "__main__":
@@ -175,14 +192,15 @@ if __name__ == "__main__":
     base_structure = Structure.from_file(os.path.join(os.path.dirname(__file__), "POSCAR"))#.get_primitive_structure(tolerance=0.001)
     config = spinel_config(base_structure, cellsize, "Mg", "Al")
     config.prepare_random()
+    #config.prepare_ordered()
     print(config.structure)
 
     # prepare queue and qwatcher for submitting vasp jobs
     queue = mp.Manager().Queue()
-    nvaspruns = 3
+    nvaspruns = 5
     n_mpiprocs = 72
     n_ompthreads = 1
-    synctime = 5
+    synctime = 2
     qwatcher = mp.Process(target=rvasp.vasp_bulkjob_qwatcher,
                           args=(queue, "/home/issp/vasp/vasp.5.3.5/bin/vasp.gamma",
                                 nvaspruns, n_mpiprocs, n_ompthreads, synctime)
@@ -193,19 +211,19 @@ if __name__ == "__main__":
     #rvasp.vasp_run("mpijob /home/issp/vasp/vasp.5.3.5/bin/vasp.gamma")# rvasp.vasp_run_use_queue(queue)
     baseinput = VaspInput.from_directory("baseinput") #(os.path.join(os.path.dirname(__file__), "baseinput"))
     ltol=0.2
-    matcher = StructureMatcher(ltol=ltol, primitive_cell=False)
+    matcher = StructureMatcher(ltol=ltol, primitive_cell=False, ignored_species=["O"])
     matcher_site = StructureMatcher(ltol=ltol, primitive_cell=False,
                                              allow_subset=True,
-                                             comparator=FrameworkComparator())
+                                             comparator=FrameworkComparator(), ignored_species=["O"])
     drone = SimpleVaspToComputedEntryDrone(inc_structure=True)
     queen = BorgQueen(drone)
     model = dft_spinel_mix(calcode="VASP", vasp_run=vasprun,  base_vaspinput=baseinput,
                            matcher=matcher, matcher_site=matcher_site, queen=queen)
 
     print(model.xparam(config))
-
+    #sys.exit()
     # Prepare pool of workers for Monte Carlo replicas
-    nreplicas = 3  
+    nreplicas = 5
     pool = mp.Pool(processes=nreplicas)
     #sys.exit()
 
@@ -216,26 +234,38 @@ if __name__ == "__main__":
         energy_expect = 0
         xparam_expect = 0
         
-        kT = kB*T
+        #kT = kB*T
+        kT = kB*np.array([1000,1100,1200,1300,1400])
+        configs = pickle.load(open("config.pickle","rb"))
+        #configs = [copy.deepcopy(config) for i in range(nreplicas)]
+        RXcalc = TemperatureReplicaExchange(model, kT, configs, CanonicalMonteCarlo, writefunc=writeEandX)
         calc_list = []
-        for i in range(nreplicas):
-            model = dft_spinel_mix(calcode="VASP", vasp_run=vasprun,  base_vaspinput=baseinput,
-                           matcher=matcher, matcher_site=matcher_site, queen=queen)
-            config = copy.deepcopy(config)
-            calc_list.append(CanonicalMonteCarlo(model, kT, config))
+#        for i in range(nreplicas):
+            #model = dft_spinel_mix(calcode="VASP", vasp_run=vasprun,  base_vaspinput=baseinput,
+            #               matcher=matcher, matcher_site=matcher_site, queen=queen)
+            #config = copy.deepcopy(config)
+
+            #print("before calc")
+            #calc = CanonicalMonteCarlo(model, kT[i], configs[i], writeEandX)
+            #print("after calc")
+            #calc_list.append(calc)
+            #calc_list.append(CanonicalMonteCarlo(model, kT, config))
+        
+        #calc_list = [CanonicalMonteCarlo(model, kT, config) for config in configs]
         #calc_list[0].run(2)
         #print config
-        xparam_out = open("xparam.out", "w")
-        energy_out = open("energy.out", "w")
-        for i in range(100):
-            print("before MPRR")
-            calc_list = MultiProcessReplicaRun(calc_list, 1, pool, True)
-            xparam_out.write("\t".join([str(model.xparam(calc.config)) for calc in calc_list])+"\n")
-            energy_out.write("\t".join([str(calc.energy) for calc in calc_list])+"\n")
-            xparam_out.flush()
-            energy_out.flush()
+        #xparam_out = open("xparam.out", "w")
+        #energy_out = open("energy.out", "w")
+        sample_freq = 1
+        #for i in range(1):
+        #    calc_list = MultiProcessReplicaRun(calc_list, 100, pool, sample_freq, True)
         #calc.run(eqsteps)
-        #cPickle.dump(config, open("spinel_config.pickle", "wb"))
+        for i in range(40):
+            RXcalc.run(nsteps=100, RXtrial_frequency=5, pool=pool, sample_frequency=1, subdirs=True)
+        
+            #config_list = [calc.config for calc in calc_list]
+            config_list = RXcalc.configs
+            pickle.dump(config_list, open("config.pickle", "wb"))
 
         #mcloop = mcsteps/sample_frequency
         #for i in range(mcloop):
