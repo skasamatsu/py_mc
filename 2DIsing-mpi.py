@@ -83,11 +83,13 @@ class ising2D_config:
             s += "\n"
         return s
 
-def observables(MCcalc):
+def observables(MCcalc, outputfi=open(os.devnull,"w")):
     energy = MCcalc.energy
     energy2 = energy**2.0
     magnetization = abs(MCcalc.model.magnetization(MCcalc.config))
     magnetization2 = magnetization**2.0
+    outputfi.write(str(energy)+"\t"+str(MCcalc.kT)+"\n")
+    outputfi.flush()
     return np.array([energy, energy2, magnetization, magnetization2])
 
 
@@ -109,14 +111,14 @@ if __name__ == "__main__":
 
     #kTs = [0.6+0.005*i for i in range(432)]
     kTs = [0.01*i for i in range(1,nprocs+1)]
-    parallelCalc = ParallelMC(CanonicalMonteCarlo, model, configs, kTs, writefunc=write_energy, subdirs=True)
-    parallelCalc.run(eqsteps, None)
-    obs = parallelCalc.run(nsteps, sample_frequency, observables)
+#    parallelCalc = ParallelMC(CanonicalMonteCarlo, model, configs, kTs, writefunc=write_energy, subdirs=True)
+#    parallelCalc.run(eqsteps, None)
+#    obs = parallelCalc.run(nsteps, sample_frequency, observables)
 
-#    parallelCalc = TemperatureRX_MPI(CanonicalMonteCarlo, model, configs, kTs)
-#    parallelCalc.run(eqsteps, RXtrial_frequency, None, observables)
-#    obs = parallelCalc.run(nsteps, RXtrial_frequency, sample_frequency, observables)
-
+    parallelCalc = TemperatureRX_MPI(CanonicalMonteCarlo, model, configs, kTs)
+    parallelCalc.run(eqsteps, RXtrial_frequency, None, observables)
+    obs = parallelCalc.run(nsteps, RXtrial_frequency, sample_frequency, observables)
+    
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     if rank==0:
