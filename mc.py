@@ -1,7 +1,8 @@
 from math import exp
 from random import random,randrange
 from multiprocessing import Process, Queue, Pool, TimeoutError
-import os
+import os, sys
+import numpy as np
 
 
 '''Defines base classes for Monte Carlo simulations'''
@@ -42,15 +43,22 @@ def write_energy(MCcalc):
 def write_energy_Temp(MCcalc, outputfile=open("energy.out", "a")):
     outputfile.write(str(MCcalc.energy)+"\t"+str(MCcalc.kT)+"\n")
     outputfile.flush()
+
+class grid_1D:
+    def __init__(self, dx, minx, maxx):
+        self.dx = dx
+        self.x = np.arange(minx, maxx, dx)
     
 class CanonicalMonteCarlo:
 
-    def __init__(self, model, kT, config, writefunc=write_energy):
+    def __init__(self, model, kT, config, writefunc=write_energy,
+                 grid=0):
         self.model = model
         self.config = config
         self.kT = kT
         #self.energy = self.model.energy(self.config)
         self.writefunc = writefunc
+        self.grid = grid
 
     def MCstep(self):
         dconfig, dE  = self.model.trialstep(self.config, self.energy)
@@ -66,20 +74,22 @@ class CanonicalMonteCarlo:
                 #print "trial accepted"
 
     def run(self, nsteps, sample_frequency=0, observefunc=lambda *args: None):
-        if sample_frequency:
-            nloop = nsteps//sample_frequency
-            observables = 0
-            self.energy = self.model.energy(self.config)
-            for i in range(nloop):
-                for i in range(sample_frequency):
-                    self.MCstep()
-                self.writefunc(self)
-                observables += observefunc(self)
-            return observables/nloop
-        else:
-            for i in range(nsteps):
-                self.MCstep()
-
+        if not sample_frequency:
+            sample_frequency = float("inf")
+            
+        observables = 0.0
+        nsample = 0
+        self.energy = self.model.energy(self.config)
+        output = open("obs.dat", "a")
+        for i in range(nsteps):
+            self.MCstep()
+            sys.stdout.flush()
+            if i%sample_frequency == 0:
+                #self.writefunc(self)
+                observables += observefunc(self,output)
+                nsample += 1
+        return observables/nsample
+        
 
                 
 def MCalgo_Run_multiprocess_wrapper(MCcalc, nsteps, sample_frequency=0, outdir=None):
