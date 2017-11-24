@@ -45,9 +45,10 @@ class HC_2D(model):
         move_id = np.random.randint(HC_2D_config.Ndisc)
         coors = HC_2D_config.coors
         move_coor = coors[move_id].copy()
-        move_coor += self.maxstep * np.array(rand.uniform(-1,1))
+        move_coor += self.maxstep * \
+                     np.array([rand.uniform(-1,1), rand.uniform(-1,1)])
         trial_coor_others = np.delete(coors,move_id,0)
-
+        move_coor -= np.floor(move_coor/Lcell)*Lcell
         dconfig = [move_id, move_coor]
 
         sij = trial_coor_others - move_coor
@@ -86,7 +87,7 @@ class HC_2D_config:
         maxX = int(self.Lcell/disc_spacing_x)
         maxY = int(self.Lcell/disc_spacing_y)
         maxX2, remainder = divmod(self.Ndisc,maxY)
-        assert maxX2 < maxX
+        assert maxX2 <= maxX
         
         id = 0
         for i in range(maxX2):
@@ -102,6 +103,33 @@ class HC_2D_config:
 
         self.coors[:,0] *= disc_spacing_x
         self.coors[:,1] *= disc_spacing_y   
+
+    def prepare_metropolis(self):
+        # Prepare triangular lattice in the original Metropolis paper
+        # First filled along Y direction (will be space in X dir)
+
+        disc_spacing_x = 1.0/14.0
+        disc_spacing_y = 1.0/16.0
+        maxX = int(self.Lcell/disc_spacing_x)
+        maxY = int(self.Lcell/disc_spacing_y)
+        maxX2, remainder = divmod(self.Ndisc,maxY)
+        assert maxX2 <= maxX
+        
+        id = 0
+        for i in range(maxX2):
+            for j in range(maxY):
+                self.coors[id,0] = (i+0.5*j%1) 
+                self.coors[id,1] = j 
+                id += 1
+        for i in range(remainder):
+            self.coors[id,0] = maxX2 + 0.5*i%1
+            self.coors[id,1] = i
+            id +=1
+        assert id == self.Ndisc
+
+        self.coors[:,0] *= disc_spacing_x
+        self.coors[:,1] *= disc_spacing_y   
+
         
 def g_r(HC_2D_config, grid_1D):
     X = grid_1D.x
@@ -132,13 +160,15 @@ def observables(MCcalc, outputfi):
 
 
 def plot_fig(MCcalc,nstep, sample_frequency=100):
+    MCcalc.energy = MCcalc.model.energy(MCcalc.config)
     plt.axis([0,MCcalc.config.Lcell,0,MCcalc.config.Lcell])
     plt.ion()
     for i in range(nstep):
         MCcalc.MCstep()
         if i%sample_frequency == 0:
+            plt.cla()
             for i in range(MCcalc.config.Ndisc):
                 circle = plt.Circle(MCcalc.config.coors[i],
                                     radius=MCcalc.config.rdisc, fc='b')
                 plt.gca().add_patch(circle)
-            plt.pause(0.1)
+            plt.pause(0.05)
