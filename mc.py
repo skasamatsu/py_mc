@@ -81,14 +81,22 @@ class CanonicalMonteCarlo:
         nsample = 0
         self.energy = self.model.energy(self.config)
         output = open("obs.dat", "a")
+        if hasattr(observefunc(self,output),'__add__'):
+            observe = True
+        else:
+            observe = False
+            
         for i in range(nsteps):
             self.MCstep()
             sys.stdout.flush()
-            if i%sample_frequency == 0:
+            if i%sample_frequency == 0 and observe:
                 #self.writefunc(self)
                 observables += observefunc(self,output)
                 nsample += 1
-        return observables/nsample
+        if nsample > 0:
+            return observables/nsample
+        else:
+            return None
         
 
                 

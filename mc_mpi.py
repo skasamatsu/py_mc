@@ -6,7 +6,7 @@ import pickle
 from mc import *
 
 class ParallelMC(object):
-    def __init__(self, comm, MCalgo, model, configs, kTs, writefunc=write_energy, subdirs=True):
+    def __init__(self, comm, MCalgo, model, configs, kTs, grid=None, writefunc=write_energy, subdirs=True):
         self.comm = comm
         self.rank = self.comm.Get_rank()
         self.procs = self.comm.Get_size()
@@ -24,7 +24,7 @@ class ParallelMC(object):
 
         myconfig = configs[self.rank]
         mytemp = kTs[self.rank]
-        self.mycalc = MCalgo(model, mytemp, myconfig, writefunc)
+        self.mycalc = MCalgo(model, mytemp, myconfig, writefunc, grid)
         
     def run(self, nsteps, sample_frequency, observefunc=lambda *args: None):
         if self.subdirs:
