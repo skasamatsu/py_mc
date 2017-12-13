@@ -63,11 +63,12 @@ if __name__ == "__main__":
                                              #comparator=FrameworkComparator(), ignored_species=["Pt","Zr"])
     drone = SimpleVaspToComputedEntryDrone(inc_structure=True)
     queen = BorgQueen(drone)
-    model = dft_HAp(calcode="VASP", vasp_run=vasprun,  base_vaspinput=baseinput, matcher_base=matcher_base,
-                    queen=queen)
-    #matcher=matcher, matcher_site=matcher_site, queen=queen, selective_dynamics=["Pt"])
 
-
+    energy_lst = pickle.load(open("energy_reps.pickle", "rb"))
+    reps = pickle.load(open("latgas_reps.pickle", "rb"))
+    
+    model = energy_lst_HAp(calcode="VASP", vasp_run=vasprun,  base_vaspinput=baseinput, matcher_base=matcher_base,
+                            queen=queen, reps=reps, energy_lst=energy_lst)
     
     if worldrank == 0:
         print(config.structure)
@@ -78,19 +79,11 @@ if __name__ == "__main__":
     #configs = [copy.deepcopy(config) for i in range(nreplicas)]
     RXcalc = TemperatureRX_MPI(comm, CanonicalMonteCarlo, model, configs, kTs)
     #RXcalc.reload()
-    obs = RXcalc.run(nsteps=100, RXtrial_frequency=2, sample_frequency=1, observfunc=observables, subdirs=True)
-    if worldrank == 0:
-        for i in range(len(kTs)):
-            with open("T"+str(i)+".dat", "w") as f:
-                f.write("\n".join([str(obs[i,j]) for j in range(len(obs[i,:]))]))
-   
-    for i in range(9):
-        RXcalc.reload()
-        obs += RXcalc.run(nsteps=100, RXtrial_frequency=2, sample_frequency=1, observfunc=observables, subdirs=True)
-        obs_write = obs/float(i+2)
+    for nstep in range(10):
+        obs = RXcalc.run(nsteps=1000, RXtrial_frequency=2, sample_frequency=1, observfunc=observables, subdirs=True)
         if worldrank == 0:
-            for i in range(len(kTs)):
-                with open("T"+str(i)+".dat", "w") as f:
-                    f.write("\n".join([str(obs_write[i,j]) for j in range(len(obs_write[i,:]))]))
+            with open("step"+str(nstep)+".dat", "w") as f:
+                for i in range(len(kTs)):
+                    f.write("\t".join([str(obs[i,j]) for j in range(len(obs[i,:]))])+"\n")
         
 

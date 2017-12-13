@@ -44,7 +44,7 @@ if __name__ == "__main__":
     
 
     # prepare config
-    cellsize = [1,1,3]
+    cellsize = [2,2,2]
     base_structure = Structure.from_file(os.path.join(os.path.dirname(__file__), "POSCAR"))#.get_primitive_structure(tolerance=0.001)
     config = HAp_config(base_structure=base_structure, cellsize=cellsize)
     config.set_latgas()
@@ -58,12 +58,12 @@ if __name__ == "__main__":
     baseinput = VaspInput.from_directory("baseinput") #(os.path.join(os.path.dirname(__file__), "baseinput"))
     ltol=0.1
 #    matcher = StructureMatcher(ltol=ltol, primitive_cell=False, ignored_species=["Pt"])
-    matcher_base = StructureMatcher(ltol=ltol, primitive_cell=False,stol=0.5,
-                                             allow_subset=True)#,
+#    matcher_site = StructureMatcher(ltol=ltol, primitive_cell=False,stol=0.5,
+#                                             allow_subset=True)#,
                                              #comparator=FrameworkComparator(), ignored_species=["Pt","Zr"])
     drone = SimpleVaspToComputedEntryDrone(inc_structure=True)
     queen = BorgQueen(drone)
-    model = dft_HAp(calcode="VASP", vasp_run=vasprun,  base_vaspinput=baseinput, matcher_base=matcher_base,
+    model = dft_HAp(calcode="VASP", vasp_run=vasprun,  base_vaspinput=baseinput,
                     queen=queen)
     #matcher=matcher, matcher_site=matcher_site, queen=queen, selective_dynamics=["Pt"])
 
@@ -73,12 +73,12 @@ if __name__ == "__main__":
         print(config.structure)
         #print(model.xparam(config))
     
-    kTs = kB*np.array([500.0*1.2**i for i in range(nreplicas)])
+    kTs = kB*np.array([500.0*1.1**i for i in range(nreplicas)])
     #configs = pickle.load(open("config.pickle","rb"))
     #configs = [copy.deepcopy(config) for i in range(nreplicas)]
     RXcalc = TemperatureRX_MPI(comm, CanonicalMonteCarlo, model, configs, kTs)
     #RXcalc.reload()
-    obs = RXcalc.run(nsteps=100, RXtrial_frequency=2, sample_frequency=1, observfunc=observables, subdirs=True)
+    obs = RXcalc.run(nsteps=10, RXtrial_frequency=2, sample_frequency=1, observfunc=observables, subdirs=True)
     if worldrank == 0:
         for i in range(len(kTs)):
             with open("T"+str(i)+".dat", "w") as f:
@@ -86,7 +86,7 @@ if __name__ == "__main__":
    
     for i in range(9):
         RXcalc.reload()
-        obs += RXcalc.run(nsteps=100, RXtrial_frequency=2, sample_frequency=1, observfunc=observables, subdirs=True)
+        obs += RXcalc.run(nsteps=10, RXtrial_frequency=2, sample_frequency=1, observfunc=observables, subdirs=True)
         obs_write = obs/float(i+2)
         if worldrank == 0:
             for i in range(len(kTs)):

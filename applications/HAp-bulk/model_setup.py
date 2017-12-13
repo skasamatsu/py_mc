@@ -16,26 +16,59 @@ def gauss(x, x0, sigma):
     return 1./(np.sqrt(2.*np.pi)*sigma)*np.exp(-np.power((x-x0)/sigma, 2.)/2.)
 
 
+def match_id(lst, obj):
+    mapping = []
+    for i in range(len(lst)):
+        if lst[i] == obj:
+            mapping.append(i)
+    return mapping
+
+def nomatch_id(lst, obj):
+    for i in range(len(lst)):
+        if lst[i] != obj:
+            mapping.append(i)
+    return mapping
+
+
 class dft_HAp(model):
     '''This class defines the DFT HAp space charge model'''
 
     model_name = "dft_HAp"
     
-    def __init__(self, calcode, vasp_run, base_vaspinput, # matcher, matcher_site,
-                 queen, selective_dynamics=None):
+    def __init__(self, calcode, vasp_run, base_vaspinput, matcher_base, # matcher, matcher_site,
+                 queen, selective_dynamics=None, matcher=None):
         self.calcode = calcode
-        #self.matcher = matcher
+        self.matcher_base = matcher_base
+        self.matcher = matcher
         #self.matcher_site = matcher_site
         self.drone = SimpleVaspToComputedEntryDrone(inc_structure=True)
         self.queen = queen
         self.base_vaspinput = base_vaspinput
         self.vasp_run = vasp_run
         self.selective_dynamics = selective_dynamics
+
+    def update_basestruct(self, HAp_config):
+        basesites = self.matcher_base.get_mapping(HAp_config.structure,
+                                                  HAp_config.base_structure)
+        idx = 0
+        for i in basesites:
+            HAp_config.base_structure[idx] = HAp_config.structure[i]
+            idx += 1
         
-    def energy(self, HAp_config):
+    def energy(self, HAp_config, save_history=False):
         ''' Calculate total energy of the space charge model'''
         
         structure = HAp_config.structure.get_sorted_structure()
+        if save_history and self.matcher != None:
+            calc_history = HAp_config.calc_history
+            # Try to avoid doing dft calculation for the same structure.
+            # Assuming that calc_history is a list of ComputedStructureEntries
+            for i in range(len(calc_history)):
+                if self.matcher.fit(structure, calc_history[i].structure0):
+                    print("match found in history")
+                    return calc_history[i].energy
+                        
+                                                                                                    
         
         if self.selective_dynamics:
             seldyn_arr = [[True,True,True] for i in range(len(structure))]
@@ -56,24 +89,14 @@ class dft_HAp(model):
         queen = BorgQueen(self.drone)
         queen.serial_assimilate('./output')
         results = queen.get_data()[-1]
-        HAp_config.structure = results.structure
-        
+
+        if save_history:
+            results.structure0 = HAp_config.structure
+            HAp_config.calc_history.append(results)
+            
+        HAp_config.structure = results.structure        
         return np.float64(results.energy)
         
-    # def xparam(self,spinel_config):
-    #     '''Calculate number of B atoms in A sites'''
-        
-    #     asites = self.matcher_site.get_mapping(spinel_config.structure,
-    #                                            spinel_config.Asite_struct)
-    #     #print asites
-    #     #print spinel_config.structure
-    #     #print spinel_config.Asite_struct
-    #     x = 0
-    #     for i in asites:
-    #         if spinel_config.structure.species[i] == Element(spinel_config.Bspecie):
-    #             x += 1
-    #     x /= float(len(asites))
-    #     return x
         
             
     def trialstep(self, HAp_config, energy_now):
@@ -84,16 +107,20 @@ class dft_HAp(model):
         structure0 = HAp_config.structure
         latgas_rep0 = HAp_config.latgas_rep.copy()
 
-        if np.count_nonzero(latgas_rep0==0) == 0 or rand.random() < 0.5:
+        if latgas_rep0.count(0) == 0 or rand.random() < 0.5:
             # Flip an OH
-            OH_ids = np.where(abs(latgas_rep0)==1)[0]
+            OH_ids = match_id(latgas_rep0, (1,0)) + match_id(latgas_rep0, (1,1))
             flip_id = rand.choice(OH_ids)
-            HAp_config.latgas_rep[flip_id] *= -1
+            if HAp_config.latgas_rep[flip_id] == (1,0):
+                HAp_config.latgas_rep[flip_id] = (1,1)
+            else:
+                HAp_config.latgas_rep[flip_id] = (1,0)
+                    
         else:
             # Exchange V with OH or O
-            V_ids = np.where(latgas_rep0 == 0)[0]
+            V_ids = match_id(latgas_rep0, 0)
             ex_id = rand.choice(V_ids)
-            other_ids = np.where(latgas_rep0 != 0)[0]
+            other_ids = nomatch_id(lagas_rep0, 0)
             ex_other_id = rand.choice(other_ids)
             HAp_config.latgas_rep[ex_id], HAp_config.latgas_rep[ex_other_id] \
                 = HAp_config.latgas_rep[ex_other_id], HAp_config.latgas_rep[ex_id]
@@ -119,27 +146,41 @@ class dft_HAp(model):
     def newconfig(self, HAp_config, dconfig):
         '''Construct the new configuration after the trial step is accepted'''
         HAp_config.structure, HAp_config.latgas_rep = dconfig
+        self.update_basestruct(HAp_config)
         return HAp_config
         
 
+class energy_lst_HAp(dft_HAp):
+    def __init__(self, calcode, vasp_run, base_vaspinput, matcher_base, # matcher, matcher_site,
+                 queen, reps, energy_lst, selective_dynamics=None, matcher=None):
+        super().__init__(calcode, vasp_run, base_vaspinput, matcher_base, # matcher, matcher_site,
+                 queen, selective_dynamics=None, matcher=None)
+        self.reps = reps
+        self.energy_list = energy_lst
+
+    def energy(self, HAp_config, save_history=False):
+        rep_id = self.reps.index(tuple(HAp_config.latgas_rep))
+        return np.float64(self.energy_list[rep_id])
         
 class HAp_config:
     '''This class defines the HAp config with lattice gas mapping'''
 
     def __init__(self, base_structure, cellsize=[1,1,1]):
+        self.calc_history = []
         self.cellsize = cellsize
         self.base_structure = base_structure
         site_centers = [[0.,0.,0.25],[0.,0.,0.75]]
-        self.latgas_rep = np.ones(cellsize[0]*cellsize[1]*cellsize[2]*len(site_centers),dtype=int)
+        self.latgas_rep = [(1,0)]*np.prod(cellsize)*len(site_centers)
         site_centers = np.array(site_centers)
-        site_centers_sc = np.zeros(np.prod(cellsize)*site_centers.shape[0],3, dtype=float)
+        site_centers_sc = np.zeros((np.prod(cellsize)*site_centers.shape[0],3), dtype=float)
         idx = 0
         for i in range(cellsize[0]):
             for j in range(cellsize[1]):
-                for k in range(cellsize[2]):     
-                    site_centers_sc[idx] = site_centers + np.array([i,j,k])
-                    idx += 1
-
+                for k in range(cellsize[2]):
+                    for l in range(site_centers.shape[0]):
+                        site_centers_sc[idx] = site_centers[l] + np.array([i,j,k])
+                        idx += 1
+        site_centers_sc /= np.array(cellsize)
         self.site_centers = site_centers_sc
         self.base_structure.make_supercell([cellsize[0], cellsize[1], cellsize[2]])
         self.supercell = self.base_structure.lattice.matrix
@@ -147,7 +188,7 @@ class HAp_config:
             0:[],
             (1,0):[["O",np.array([0.0,0.0,-0.915/2])],["H",np.array([0.0,0.0,0.915/2])]],
             (1,1):[["O",np.array([0.0,0.0,0.915/2])],["H",np.array([0.0,0.0,-0.915/2])]],
-            2: ["O",np.array([0.0,0.0,0.0])]
+            2: [["O",np.array([0.0,0.0,0.0])]]
         }
         invSuper = np.linalg.inv(self.supercell)
         for key in group_dict.keys():
@@ -155,61 +196,25 @@ class HAp_config:
                 atom[1] = np.dot(atom[1], invSuper)
         self.group_dict = group_dict
 
-    def set_latgas(self,latgas_rep=self.latgas_rep):
-        self.latgas_rep = latgas_rep, dtype=int
-        numsites = self.latgas_rep.shape[0]
+    def set_latgas(self,latgas_rep=False):
+        if latgas_rep:
+            self.latgas_rep = latgas_rep
+        numsites = len(self.latgas_rep)
         assert numsites == self.site_centers.shape[0]
         self.structure = copy.deepcopy(self.base_structure)
         for isite in range(numsites):
-            gid = latgas_rep[isite]
-            for atom in range(len(self.group_dict[gid])):
+            gid = self.latgas_rep[isite]
+            for atom in self.group_dict[gid]:
                 self.structure.append(
                     atom[0],
-                    atom[1] + self.site_center[isite],
+                    atom[1] + self.site_centers[isite],
                     properties={"velocities":[0,0,0]}
                     )
-                    
-        
-    def prepare_Ovac(self):
-        # Prepare a structure with N_ovac*N_Osites oxygen vacancies
-        Osites = self.base_structure.indices_from_symbol("O")
-        N_Vsites = int(self.N_Ovac * len(Osites))
-        Vacsites = rand.sample(Osites, N_Vsites)
-        Vacsites.sort()
-        Vacsites.reverse()
-        self.structure = self.base_structure.copy()
-        for site in Vacsites:
-            self.structure.pop(site)
-
-    def prepare_ordered(self):
-        self.structure = self.base_structure.copy()
-        
-    #def __str__(self):
-    #    s = ""
-    #    for i in range(self.lenX):
-    #        for j in range(self.lenY):
-    #            if self.config[i,j] < 0:
-    #                s += "-"
-    #            else:
-    #                s += "+"
-    #        s += "\n"
-    #    return s
-    
-# def writeEandX(calc):
-#     with open("energy.out", "a") as f:
-#         f.write(str(calc.energy)+"\n")
-#         f.flush()
-#     with open("xparam.out", "a") as f:
-#         xparam = calc.model.xparam(calc.config)
-#         f.write(str(xparam)+"\n")
-#         f.flush()
-
-
-
+                        
 def observables(MCcalc, outputfi):
     energy = MCcalc.energy
-    nup = np.count_nonzero(MCcalc.config.latgas_rep==1)
-    ndown = np.count_nonzero(MCcalc.config.latgas_rep==-1)
+    nup = MCcalc.config.latgas_rep.count((1,0))
+    ndown = MCcalc.config.latgas_rep.count((1,1))
     tot_pol = nup - ndown
     #energy2 = energy**2.0
     #xparam = MCcalc.model.xparam(MCcalc.config)
