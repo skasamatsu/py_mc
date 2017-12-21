@@ -5,6 +5,31 @@ import pickle
 
 from mc import *
 
+def RX_MPI_init():
+    args = sys.argv
+    nreplicas = int(args[1] )
+    nprocs_per_replica = int(args[2])
+    commworld = MPI.COMM_WORLD
+    worldrank = commworld.Get_rank()
+    worldprocs = commworld.Get_size()
+    if worldprocs > nreplicas:
+        if worldrank == 0:
+            print("Setting number of replicas smaller than MPI processes; I hope you"
+                  +" know what you're doing..."
+            )
+            sys.stdout.flush()
+        if worldrank >= nreplicas:
+            # belong to comm that does nothing
+            comm = commworld.Split(color=1, key=worldrank)
+            comm.Free()
+            sys.exit() # Wait for MPI_finalize
+        else:
+            comm = commworld.Split(color=0, key=worldrank)
+    else:
+        comm = commworld
+    return comm, nreplicas, nprocs_per_replica
+
+
 class ParallelMC(object):
     def __init__(self, comm, MCalgo, model, configs, kTs, grid=None, writefunc=write_energy, subdirs=True):
         self.comm = comm
@@ -44,8 +69,8 @@ class ParallelMC(object):
 
         
 class TemperatureRX_MPI(ParallelMC):
-    def __init__(self, comm, MCalgo, model, configs, kTs, swap_algo=swap_configs, writefunc=write_energy_Temp, subdirs=True):
-        super(TemperatureRX_MPI, self).__init__(comm, MCalgo, model, configs, kTs, writefunc, subdirs)
+    def __init__(self, comm, MCalgo, model, configs, kTs, grid=None, swap_algo=swap_configs, writefunc=write_energy_Temp, subdirs=True):
+        super(TemperatureRX_MPI, self).__init__(comm, MCalgo, model, configs, kTs, grid, writefunc, subdirs)
         self.swap_algo = swap_algo
         self.betas = 1.0/np.array(kTs)
         self.energyRankMap = np.zeros(len(kTs))
