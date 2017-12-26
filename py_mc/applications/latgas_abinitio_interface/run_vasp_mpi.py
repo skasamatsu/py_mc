@@ -23,12 +23,12 @@ class test_runner(object):
     
 
 class vasp_runner(object):
-    def __init__(base_input_dir, path_to_vasp, nprocs_per_vasp, comm):
-        self.base_vasp_input = VaspInput.from_directory("base_input_dir")
+    def __init__(self, base_input_dir, path_to_vasp, nprocs_per_vasp, comm):
+        self.base_vasp_input = VaspInput.from_directory(base_input_dir)
         self.path_to_vasp = path_to_vasp
         self.nprocs_per_vasp = nprocs_per_vasp
         self.comm = comm
-        self.vasp_run = vasp_run_mpispawn(path_to_vasp, nprocs, comm)
+        self.vasp_run = vasp_run_mpispawn(path_to_vasp, nprocs_per_vasp, comm)
         self.drone = SimpleVaspToComputedEntryDrone(inc_structure=True)
         self.queen = BorgQueen(self.drone)
         
@@ -39,8 +39,8 @@ class vasp_runner(object):
         self.vasp_run.submit(vaspinput, output_dir)
         #queen = BorgQueen(self.drone)
         self.queen.serial_assimilate(output_dir)
-        results = queen.get_data()[-1]
-        return results.energy, results.structure
+        results = self.queen.get_data()[-1]
+        return np.float64(results.energy), results.structure
 
 
 def submit_bulkjob(vasprundirs, path_to_vasp, n_mpiprocs, n_ompthreads):
@@ -116,6 +116,7 @@ class vasp_run_mpispawn:
         #    if i == self.commrank:
         failed_dir = []
         vasprundirs = self.comm.gather(output_dir,root=0)
+        print(self.commrank)
         if self.commrank == 0:
             start = timer()
             commspawn = [MPI.COMM_SELF.Spawn(self.path_to_vasp, #/home/issp/vasp/vasp.5.3.5/bin/vasp",

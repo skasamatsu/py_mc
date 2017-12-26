@@ -8,7 +8,7 @@ import pickle
 from pymatgen import Lattice, Structure, Element, PeriodicSite
 from pymatgen.io.vasp import Poscar, VaspInput
 from pymatgen.analysis.structure_matcher import StructureMatcher, FrameworkComparator
-from mc import model
+from py_mc.mc import model
 
 def gauss(x, x0, sigma):
     return 1./(np.sqrt(2.*np.pi)*sigma)*np.exp(-np.power((x-x0)/sigma, 2.)/2.)
@@ -40,17 +40,20 @@ def g_r(structure, specie1, specie2, grid_1D):
     dr = grid_1D.dx
 
     lattice = structure.lattice
-    types_of_specie = copy.copy(structure.types_of_specie)
-    
+    types_of_specie = [element.symbol for element in structure.types_of_specie]
     assert specie1 in types_of_specie
     assert specie2 in types_of_specie
 
     structure1 = structure.copy()
     structure2 = structure.copy()
 
-    not_specie1 = copy.copy(types_of_specie).remove(specie1)
-    not_specie2 = types_of_specie.remove(specie2)
-
+    #print(specie1)
+    not_specie1 = copy.copy(types_of_specie)
+    not_specie1.remove(specie1)
+    not_specie2 = types_of_specie
+    not_specie2.remove(specie2)
+    #print(not_specie1,not_specie2)
+    
     structure1.remove_species(not_specie1)
     structure2.remove_species(not_specie2)
 
@@ -62,16 +65,16 @@ def g_r(structure, specie1, specie2, grid_1D):
         structure2.frac_coords
         )
     dist_bin = np.around(dist/dr)
-    
+    #print(num_specie1,num_specie2)
     g = np.zeros(len(X))
     for i in range(len(X)):
         g[i] = np.count_nonzero(dist_bin == i + 1)
 
     if specie1 == specie2:
-        pref = lattice_matrix.volume/ \
-               (4.0*np.pi*X*X*dr*num_specie1*(num_specie1-2))
+        pref = lattice.volume/ \
+               (4.0*np.pi*X*X*dr*num_specie1*(num_specie1-1))
     else:
-        pref = lattice_matrix.volume/ \
+        pref = lattice.volume/ \
                (4.0*np.pi*X*X*dr*num_specie1*num_specie2)
 
     g *= pref
@@ -323,7 +326,7 @@ class config:
                 group = defect_sublattice.group_dict[site[0]]
                 norr = group.orientations
                 site[1] = rand.randrange(norr)
-            print(latgas_rep)
+            #print(latgas_rep)
         self.set_latgas()
         
     def count(self, group_name, orientation):
@@ -352,17 +355,6 @@ class config:
         return sublattice_structure
         
     
-def observables(MCcalc, outputfi):
-    energy = MCcalc.energy
-    nup = MCcalc.config.count(["OH",0])
-    ndown = MCcalc.config.count(["OH",1])
-    tot_pol = np.abs(nup - ndown)
-    #energy2 = energy**2.0
-    #xparam = MCcalc.model.xparam(MCcalc.config)
-    outputfi.write("\t".join([str(observable) for observable in [MCcalc.kT, energy, nup, ndown, tot_pol]])+"\n")
-    outputfi.flush()
-    return [MCcalc.kT, energy, nup, ndown, tot_pol]
-
 
 
 

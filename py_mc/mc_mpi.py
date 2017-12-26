@@ -3,7 +3,7 @@ import numpy as np
 from mpi4py import MPI
 import pickle
 
-from mc import *
+from py_mc.mc import *
 
 def RX_MPI_init():
     args = sys.argv
@@ -93,7 +93,7 @@ class TemperatureRX_MPI(ParallelMC):
     def Xtrial(self, XCscheme=-1):
         # Gather energy to root node
         #print(type(self.mycalc.energy))
-        self.comm.Gather([self.mycalc.energy, MPI.DOUBLE], self.energyRankMap, root=0)
+        self.comm.Gather([np.float64(self.mycalc.energy), MPI.DOUBLE], self.energyRankMap, root=0)
         if self.rank == 0:
             if XCscheme == 0 or XCscheme == 1:
                 # exchanges between 0-1, 2-3, 4-5, ... or 1-2, 3-4, 5-6 are tried

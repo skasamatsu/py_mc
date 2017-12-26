@@ -4,8 +4,8 @@ from multiprocessing import Process, Queue, Pool, TimeoutError
 import os, sys
 import numpy as np
 
-
 '''Defines base classes for Monte Carlo simulations'''
+
 
 class model:
     ''' This class defines a model whose energy equals 0 no matter the configuration, and the configuration
@@ -201,3 +201,27 @@ class TemperatureReplicaExchange:
         self.configs = [MCreplica.config for MCreplica in self.MCreplicas]
         #print self.accept_count
         #self.accept_count = 0
+
+
+def obs_encode(*args):
+    nargs = np.array([len(args)])
+    args_length_list = []
+    obs_array = np.array([])
+    for arg in args:
+        obs_array = np.concatenate((obs_array, np.array(arg)))
+        args_length_list.append(len(arg))
+    args_length_array = np.array(args_length_list)
+    args_info = np.concatenate((nargs, args_length_array))
+    return  np.concatenate((args_info, obs_array))
+
+def obs_decode(obs):
+    nargs = np.around(obs[0]).astype(int)
+    args_length_array = np.around(obs[1:nargs+1]).astype(int)
+    args = []
+    idx = nargs+1
+    for i in range(nargs):
+        length = args_length_array[i]
+        args.append(obs[idx:idx+length])
+        idx += length
+    return args
+
