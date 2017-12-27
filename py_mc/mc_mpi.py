@@ -2,6 +2,7 @@ import os,sys
 import numpy as np
 from mpi4py import MPI
 import pickle
+import random as rand
 
 from py_mc.mc import *
 
@@ -12,6 +13,9 @@ def RX_MPI_init():
     commworld = MPI.COMM_WORLD
     worldrank = commworld.Get_rank()
     worldprocs = commworld.Get_size()
+    rand_seeds = [rand.random() for i in range(worldprocs)]
+    rand.seed(rand_seeds[worldrank])
+    
     if worldprocs > nreplicas:
         if worldrank == 0:
             print("Setting number of replicas smaller than MPI processes; I hope you"
