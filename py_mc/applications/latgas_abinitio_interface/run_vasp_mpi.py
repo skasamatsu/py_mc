@@ -23,7 +23,7 @@ class test_runner(object):
     
 
 class vasp_runner(object):
-    def __init__(self, base_input_dir, path_to_vasp, nprocs_per_vasp, comm):
+    def __init__(self, base_input_dir, path_to_vasp, nprocs_per_vasp, comm, perturb=0):
         self.base_vasp_input = VaspInput.from_directory(base_input_dir)
         self.path_to_vasp = path_to_vasp
         self.nprocs_per_vasp = nprocs_per_vasp
@@ -31,8 +31,11 @@ class vasp_runner(object):
         self.vasp_run = vasp_run_mpispawn(path_to_vasp, nprocs_per_vasp, comm)
         self.drone = SimpleVaspToComputedEntryDrone(inc_structure=True)
         self.queen = BorgQueen(self.drone)
+        self.perturb = perturb
         
     def submit(self, structure, output_dir, seldyn_arr=None):
+        if self.perturb:
+            structure.perturb(self.perturb)
         poscar = Poscar(structure=structure,selective_dynamics=seldyn_arr)
         vaspinput = self.base_vasp_input
         vaspinput.update({'POSCAR':poscar})
@@ -100,6 +103,8 @@ class vasp_run_mpispawn:
         self.comm = comm
         self.commsize = comm.Get_size()
         self.commrank = comm.Get_rank()
+        commworld = MPI.COMM_WORLD
+        self.worldrank = commworld.Get_rank()
 
     def submit(self, VaspInput, output_dir, rerun=2):
         VaspInput.write_input(output_dir=output_dir)
@@ -123,7 +128,7 @@ class vasp_run_mpispawn:
                                              args=[vasprundir,],
                                              maxprocs=self.nprocs) for vasprundir in vasprundirs]
             end = timer()
-            print("rank ",self.commrank," took ", end-start, " to spawn")
+            print("rank ",self.worldrank," took ", end-start, " to spawn")
             sys.stdout.flush()
             start = timer()
             exitcode = np.array(0, dtype=np.intc)
@@ -135,7 +140,7 @@ class vasp_run_mpispawn:
                     failed_dir.append(vasprundirs[i])
                 i = i + 1
             end = timer()
-            print(" took ", end-start, " for vasp execution")
+            print("rank ", self.worldrank, " took ", end-start, " for vasp execution")
 
             if len(failed_dir) != 0:
                 print("vasp failed in directories: \n "+"\n".join(failed_dir))
