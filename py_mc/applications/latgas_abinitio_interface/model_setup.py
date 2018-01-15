@@ -8,6 +8,8 @@ import pickle
 from pymatgen import Lattice, Structure, Element, PeriodicSite
 from pymatgen.io.vasp import Poscar, VaspInput
 from pymatgen.analysis.structure_matcher import StructureMatcher, FrameworkComparator
+import pymatgen.analysis.structure_analyzer as analy
+
 from py_mc.mc import model
 
 def gauss(x, x0, sigma):
@@ -86,18 +88,20 @@ class dft_latgas(model):
 
     model_name = "dft_latgas"
     
-    def __init__(self, abinitio_run, selective_dynamics=None, save_history=True, l_update_basestruct=False):
+    def __init__(self, abinitio_run, selective_dynamics=None, save_history=True, l_update_basestruct=False,
+                 check_ion_move=False, ion_move_tol=0.7):
         self.matcher = StructureMatcher(primitive_cell=False,
                                              allow_subset=False)
         self.abinitio_run = abinitio_run
         self.selective_dynamics = selective_dynamics
         self.save_history = save_history
         self.l_update_basestruct = l_update_basestruct
-
+        self.check_ion_move = check_ion_move
+        self.ion_move_tol = ion_move_tol
 
         
     def energy(self, config):
-        ''' Calculate total energy of the space charge model'''
+        ''' Calculate total energy'''
         
         config.structure.sort(key=lambda site: site.species_string)
         structure = config.structure
@@ -123,8 +127,20 @@ class dft_latgas(model):
         structure0 = structure
         energy,structure = self.abinitio_run.submit(
             structure, os.getcwd()+'/output', seldyn_arr)
-
-
+        if self.check_ion_move:
+            relax_analy = analy.RelaxationAnalyzer(structure0,structure)
+            data = relax_analy.get_percentage_bond_dist_changes()
+            breakflag = False
+            for ion in self.check_ion_move:
+                if breakflag: break
+                for index in structure0.indices_from_symbol(ion):
+                    if breakflag: break
+                    for i in data[index].keys():
+                        if  data[index][i] > self.ion_move_tol:
+                            energy = float("inf")
+                            print("ion relaxed out of initial site")
+                            breakflag = True
+                            break
         if self.save_history:
             config.calc_history.append((energy,structure0.copy(),structure.copy()))
             if len(config.calc_history) == 25:
@@ -186,8 +202,10 @@ class dft_latgas(model):
         
         # Simply pass new structure and latgas_rep  in dconfig to be used by newconfig():
         dconfig = structure, defect_sublattices
-
-        dE = e1 - e0
+        if e0 == float("inf"):
+            dE = e1
+        else:
+            dE = e1 - e0
         
         return dconfig, dE
 
@@ -238,15 +256,19 @@ class defect_sublattice(object):
 class config:
     '''This class defines the config with lattice gas mapping'''
 
-    def __init__(self, base_structure, defect_sublattices, num_defects, cellsize=[1,1,1]):
+    def __init__(self, base_structure, defect_sublattices, num_defects, cellsize=[1,1,1], perf_structure=None):
         try:
             num_defect_sublat = len(defect_sublattices)
         except TypeError:
             num_defect_sublat = 1
             defect_sublattices = [defect_sublattices]
             num_defects = [num_defects]
-        self.matcher_base = StructureMatcher( primitive_cell=False,
+        self.matcher_base = StructureMatcher(primitive_cell=False,
                                               allow_subset=True)
+        self.matcher_frame = StructureMatcher(stol=0.4,primitive_cell=False,
+                                              allow_subset=True,
+                                              comparator=FrameworkComparator())
+
         self.calc_history = []
         self.cellsize = cellsize
         self.base_structure = base_structure
@@ -256,6 +278,9 @@ class config:
             self.base_structure.make_supercell([cellsize[0], cellsize[1], cellsize[2]])
             self.base_structure.remove_sites(range(self.base_structure.num_sites))
         else: self.base_structure.make_supercell([cellsize[0], cellsize[1], cellsize[2]])
+        if perf_structure:
+            self.perf_structure = perf_structure
+            self.perf_structure.make_supercell([cellsize[0], cellsize[1], cellsize[2]])
         self.supercell = self.base_structure.lattice.matrix
         self.n_sublat = num_defect_sublat
         invSuper = np.linalg.inv(self.supercell)
@@ -353,6 +378,17 @@ class config:
                                                   self.base_structure)
         sublattice_structure.remove_sites(base_sites)
         return sublattice_structure
+
+    @property
+    def vacancy_structure(self):
+        filledsites = self.matcher_frame.get_mapping(self.perf_structure,
+                                                 self.structure)
+        #print(self.perf_structure)
+        #print(self.structure)
+        #print(filledsites)
+        vac_structure = self.perf_structure.copy()
+        vac_structure.remove_sites(filledsites)
+        return vac_structure
         
     
 
