@@ -62,7 +62,10 @@ class CanonicalMonteCarlo:
 
     def MCstep(self):
         dconfig, dE  = self.model.trialstep(self.config, self.energy)
-        if dE < 0.0:
+        if self.energy == float("inf"):
+            self.config = self.model.newconfig(self.config, dconfig)
+            self.energy = dE
+        elif dE < 0.0:
             self.config = self.model.newconfig(self.config, dconfig)
             self.energy += dE
             #print "trial accepted"
