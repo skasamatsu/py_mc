@@ -45,6 +45,20 @@ class vasp_runner(object):
         results = self.queen.get_data()[-1]
         return np.float64(results.energy), results.structure
 
+class vasp_runner_multistep(object):
+    def __init__(self, base_input_dirs, path_to_vasp, nprocs_per_vasp, comm, perturb=0):
+        self.vasp_runners = []
+        assert len(base_input_dirs) > 1
+        self.vasp_runners.append(vasp_runner(base_input_dirs[0], path_to_vasp, nprocs_per_vasp, comm, perturb))
+        for i in range(1,len(base_input_dirs)):
+            self.vasp_runners.append(vasp_runner(base_input_dirs[i], path_to_vasp, nprocs_per_vasp, comm, perturb=0))
+
+    def submit(self, structure, output_dir, seldyn_arr=None):
+        energy, newstructure = self.vasp_runners[0].submit(structure, output_dir, seldyn_arr)
+        for i in range(1, len(self.vasp_runners)):
+            energy, newstructure = self.vasp_runners[i].submit(newstructure, output_dir, seldyn_arr)
+        return energy, newstructure
+            
 
 def submit_bulkjob(vasprundirs, path_to_vasp, n_mpiprocs, n_ompthreads):
     joblist = open("joblist.txt", "w")
