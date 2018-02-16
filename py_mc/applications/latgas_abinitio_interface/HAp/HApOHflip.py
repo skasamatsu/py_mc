@@ -3,26 +3,33 @@ import random as rand
 import sys, os
 import copy
 import pickle
-#from mpi4py import MPI
-from applications.latgas_abinitio_interface.run_vasp_mpi import test_runner, vasp_runner
+from mpi4py import MPI
 
 from pymatgen import Lattice, Structure, Element, PeriodicSite
 from pymatgen.io.vasp import Poscar, VaspInput
 from pymatgen.analysis.structure_matcher import StructureMatcher, FrameworkComparator
-from mc import CanonicalMonteCarlo, grid_1D
-from mc_mpi import RX_MPI_init, TemperatureRX_MPI
-from applications.latgas_abinitio_interface.model_setup import group, defect_sublattice, config, dft_latgas
+from py_mc.mc import CanonicalMonteCarlo, grid_1D, obs_encode, obs_decode
+from py_mc.mc_mpi import RX_MPI_init, TemperatureRX_MPI
+from py_mc.applications.latgas_abinitio_interface.model_setup \
+    import group, defect_sublattice, config, dft_latgas, g_r
+from py_mc.applications.latgas_abinitio_interface.run_vasp_mpi \
+    import test_runner, vasp_runner
+
+        
 
 def observables(MCcalc, outputfi):
     energy = MCcalc.energy
     nup = MCcalc.config.count("OH",0)[0]
     ndown = MCcalc.config.count("OH",1)[0]
     tot_pol = np.abs(nup - ndown)/6
+    grid = grid_1D(0.02, 0.02, 5.0)
+    g_r_dat = g_r(MCcalc.config.structure, "O", "H",  grid)
     #energy2 = energy**2.0
     #xparam = MCcalc.model.xparam(MCcalc.config)
     outputfi.write("\t".join([str(observable) for observable in [MCcalc.kT, energy, nup, ndown, tot_pol]])+"\n")
     outputfi.flush()
-    return [MCcalc.kT, energy, nup, ndown, tot_pol]
+    scalar_obs = [MCcalc.kT, energy, nup, ndown, tot_pol]
+    return obs_encode(scalar_obs, g_r_dat)
 
 
 
@@ -48,7 +55,7 @@ groups = [OHgroup]
 kTstart = 1000.0
 kTstep = 1.2
 eqsteps = 100
-nsteps = 500
+nsteps = 10000
 RXtrial_frequency = 2
 sample_frequency = 1
 dr = 0.01
@@ -73,12 +80,12 @@ for i in range(nreplicas):
 
 ################### model setup ###############################
 #baseinput = VaspInput.from_directory("baseinput")
-#energy_calculator = vasp_runner(base_input_dir="baseinput",
-#                              path_to_vasp="/home/i0009/i000900/src/vasp.5.3/vasp.spawnready.gamma",
-#                              nprocs_per_vasp=nprocs_per_replica,
-#                              comm=comm)
-energy_calculator = test_runner()
-model = dft_latgas(energy_calculator,save_history=False)
+energy_calculator = vasp_runner(base_input_dir="./baseinput",
+                                path_to_vasp="/home/i0009/i000900/src/vasp.5.3/vasp.spawnready.gamma",
+                                nprocs_per_vasp=nprocs_per_replica,
+                                comm=MPI.COMM_SELF, perturb=0.1)
+#energy_calculator = test_runner()
+model = dft_latgas(energy_calculator,save_history=True)
 ##############################################################
 
 ################### RXMC calculation #########################
@@ -87,7 +94,17 @@ grid = grid_1D(dr, dr, maxr)
 RXcalc = TemperatureRX_MPI(comm, CanonicalMonteCarlo, model, configs, kTs)
 
 obs = RXcalc.run(eqsteps, RXtrial_frequency, sample_frequency, observfunc=observables, subdirs=True)
+#RXcalc.reload()
 obs = RXcalc.run(nsteps, RXtrial_frequency, sample_frequency, observfunc=observables, subdirs=True)
 
+
+
 if comm.Get_rank() == 0:
-    print(obs)
+    for i in range(len(kTs)):
+        scalar_obs, g_OH = obs_decode(obs[i])
+        grid = grid_1D(0.02, 0.02, 5.0)
+        g_r_r = zip(grid.x, g_OH)
+        with open("grT"+str(i)+".dat",'w') as f:
+            for dat in g_r_r:
+                f.write('\t'.join([str(xy) for xy in dat])+'\n')
+        print('\t'.join([str(x) for x in scalar_obs]))
