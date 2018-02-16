@@ -2,29 +2,58 @@ import os,sys
 import numpy as np
 from mpi4py import MPI
 import pickle
+import random as rand
 
-from mc import *
+from py_mc.mc import *
+
+def RX_MPI_init():
+    args = sys.argv
+    nreplicas = int(args[1] )
+    nprocs_per_replica = int(args[2])
+    commworld = MPI.COMM_WORLD
+    worldrank = commworld.Get_rank()
+    worldprocs = commworld.Get_size()
+    rand_seeds = [rand.random() for i in range(worldprocs)]
+    rand.seed(rand_seeds[worldrank])
+    
+    if worldprocs > nreplicas:
+        if worldrank == 0:
+            print("Setting number of replicas smaller than MPI processes; I hope you"
+                  +" know what you're doing..."
+            )
+            sys.stdout.flush()
+        if worldrank >= nreplicas:
+            # belong to comm that does nothing
+            comm = commworld.Split(color=1, key=worldrank)
+            comm.Free()
+            sys.exit() # Wait for MPI_finalize
+        else:
+            comm = commworld.Split(color=0, key=worldrank)
+    else:
+        comm = commworld
+    return comm, nreplicas, nprocs_per_replica
+
 
 class ParallelMC(object):
-    def __init__(self, MCalgo, model, configs, kTs, writefunc=write_energy, subdirs=True):
-        self.comm = MPI.COMM_WORLD
+    def __init__(self, comm, MCalgo, model, configs, kTs, grid=None, writefunc=write_energy, subdirs=True):
+        self.comm = comm
         self.rank = self.comm.Get_rank()
         self.procs = self.comm.Get_size()
         self.kTs = kTs
-        self.nreplicas = len(configs)
         self.model = model
         self.subdirs = subdirs
+        self.nreplicas = len(configs)
 
         if not(self.procs == self.nreplicas == len(self.kTs)):
             if self.rank==0:
-                print("ERROR: You have to set the number of replicas equal to the "
-                "number of processes equal to the number of temperatures"
+                print("ERROR: You have to set the number of replicas equal to the"
+                      +"number of temperatures equal to the number of processes"
                 )
             sys.exit(1)
 
         myconfig = configs[self.rank]
         mytemp = kTs[self.rank]
-        self.mycalc = MCalgo(model, mytemp, myconfig, writefunc)
+        self.mycalc = MCalgo(model, mytemp, myconfig, writefunc, grid)
         
     def run(self, nsteps, sample_frequency, observefunc=lambda *args: None):
         if self.subdirs:
@@ -44,14 +73,19 @@ class ParallelMC(object):
 
         
 class TemperatureRX_MPI(ParallelMC):
-    def __init__(self, MCalgo, model, configs, kTs, swap_algo=swap_configs, writefunc=write_energy_Temp, subdirs=True):
-        super(TemperatureRX_MPI, self).__init__(MCalgo, model, configs, kTs, writefunc, subdirs)
+    def __init__(self, comm, MCalgo, model, configs, kTs, grid=None, swap_algo=swap_configs, writefunc=write_energy_Temp, subdirs=True):
+        super(TemperatureRX_MPI, self).__init__(comm, MCalgo, model, configs, kTs, grid, writefunc, subdirs)
         self.swap_algo = swap_algo
         self.betas = 1.0/np.array(kTs)
         self.energyRankMap = np.zeros(len(kTs))
         #self.energyRankMap[i] holds the energy of the ith rank
         self.T_to_rank = np.arange(0, self.procs, 1)
         # self.T_to_rank[i] holds the rank of the ith temperature
+
+    def reload(self):
+        self.T_to_rank = pickle.load(open("T_to_rank.pickle","rb"))
+        self.mycalc.kT = self.kTs[self.myTindex()]
+        self.mycalc.config = pickle.load(open(str(self.rank)+"/calc.pickle","rb"))
         
     def myTindex(self):
         for i in range(self.nreplicas):
@@ -62,7 +96,8 @@ class TemperatureRX_MPI(ParallelMC):
 
     def Xtrial(self, XCscheme=-1):
         # Gather energy to root node
-        self.comm.Gather([self.mycalc.energy, MPI.DOUBLE], self.energyRankMap, root=0)
+        #print(type(self.mycalc.energy))
+        self.comm.Gather([np.float64(self.mycalc.energy), MPI.DOUBLE], self.energyRankMap, root=0)
         if self.rank == 0:
             if XCscheme == 0 or XCscheme == 1:
                 # exchanges between 0-1, 2-3, 4-5, ... or 1-2, 3-4, 5-6 are tried
@@ -106,22 +141,23 @@ class TemperatureRX_MPI(ParallelMC):
                 pass     
             os.chdir(str(self.rank))
         self.accept_count = 0
-        if hasattr(observfunc(self.mycalc),"__iter__"):
-            obs_len = len(observfunc(self.mycalc))
+        self.mycalc.energy = self.mycalc.model.energy(self.mycalc.config)
+        if hasattr(observfunc(self.mycalc,open(os.devnull,"w")),"__iter__"):
+            obs_len = len(observfunc(self.mycalc,open(os.devnull,"w")))
             obs = np.zeros([len(self.kTs), obs_len])
         nsample = 0
         XCscheme = 0
-        output = open("energy.dat", "a")
+        output = open("obs.dat", "a")
         if not sample_frequency:
             sample_frequency = float("inf")
         for i in range(nsteps):
             self.mycalc.MCstep()
+            sys.stdout.flush()
             if i%RXtrial_frequency == 0:
                 self.Xtrial(XCscheme)
                 XCscheme = (XCscheme+1)%2
             if i%sample_frequency == 0:
-                self.mycalc.writefunc(self.mycalc, output)
-                obs[self.myTindex()] += observfunc(self.mycalc)
+                obs[self.myTindex()] += observfunc(self.mycalc, output)
                 nsample += 1
         
         pickle.dump(self.mycalc.config, open("calc.pickle","wb"))

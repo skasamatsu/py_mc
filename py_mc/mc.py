@@ -1,10 +1,11 @@
 from math import exp
 from random import random,randrange
 from multiprocessing import Process, Queue, Pool, TimeoutError
-import os
-
+import os, sys
+import numpy as np
 
 '''Defines base classes for Monte Carlo simulations'''
+
 
 class model:
     ''' This class defines a model whose energy equals 0 no matter the configuration, and the configuration
@@ -42,19 +43,29 @@ def write_energy(MCcalc):
 def write_energy_Temp(MCcalc, outputfile=open("energy.out", "a")):
     outputfile.write(str(MCcalc.energy)+"\t"+str(MCcalc.kT)+"\n")
     outputfile.flush()
+
+class grid_1D:
+    def __init__(self, dx, minx, maxx):
+        self.dx = dx
+        self.x = np.arange(minx, maxx, dx)
     
 class CanonicalMonteCarlo:
 
-    def __init__(self, model, kT, config, writefunc=write_energy):
+    def __init__(self, model, kT, config, writefunc=write_energy,
+                 grid=0):
         self.model = model
         self.config = config
         self.kT = kT
-        self.energy = self.model.energy(self.config)
+        #self.energy = self.model.energy(self.config)
         self.writefunc = writefunc
+        self.grid = grid
 
     def MCstep(self):
         dconfig, dE  = self.model.trialstep(self.config, self.energy)
-        if dE < 0.0:
+        if self.energy == float("inf"):
+            self.config = self.model.newconfig(self.config, dconfig)
+            self.energy = dE
+        elif dE < 0.0:
             self.config = self.model.newconfig(self.config, dconfig)
             self.energy += dE
             #print "trial accepted"
@@ -66,19 +77,30 @@ class CanonicalMonteCarlo:
                 #print "trial accepted"
 
     def run(self, nsteps, sample_frequency=0, observefunc=lambda *args: None):
-        if sample_frequency:
-            nloop = nsteps//sample_frequency
-            observables = 0
-            for i in range(nloop):
-                for i in range(sample_frequency):
-                    self.MCstep()
-                self.writefunc(self)
-                observables += observefunc(self)
-            return observables/nloop
+        if not sample_frequency:
+            sample_frequency = float("inf")
+            
+        observables = 0.0
+        nsample = 0
+        self.energy = self.model.energy(self.config)
+        output = open("obs.dat", "a")
+        if hasattr(observefunc(self,output),'__add__'):
+            observe = True
         else:
-            for i in range(nsteps):
-                self.MCstep()
-
+            observe = False
+            
+        for i in range(nsteps):
+            self.MCstep()
+            sys.stdout.flush()
+            if i%sample_frequency == 0 and observe:
+                #self.writefunc(self)
+                observables += observefunc(self,output)
+                nsample += 1
+        if nsample > 0:
+            return observables/nsample
+        else:
+            return None
+        
 
                 
 def MCalgo_Run_multiprocess_wrapper(MCcalc, nsteps, sample_frequency=0, outdir=None):
@@ -182,3 +204,27 @@ class TemperatureReplicaExchange:
         self.configs = [MCreplica.config for MCreplica in self.MCreplicas]
         #print self.accept_count
         #self.accept_count = 0
+
+
+def obs_encode(*args):
+    nargs = np.array([len(args)])
+    args_length_list = []
+    obs_array = np.array([])
+    for arg in args:
+        obs_array = np.concatenate((obs_array, np.array(arg)))
+        args_length_list.append(len(arg))
+    args_length_array = np.array(args_length_list)
+    args_info = np.concatenate((nargs, args_length_array))
+    return  np.concatenate((args_info, obs_array))
+
+def obs_decode(obs):
+    nargs = np.around(obs[0]).astype(int)
+    args_length_array = np.around(obs[1:nargs+1]).astype(int)
+    args = []
+    idx = nargs+1
+    for i in range(nargs):
+        length = args_length_array[i]
+        args.append(obs[idx:idx+length])
+        idx += length
+    return args
+
