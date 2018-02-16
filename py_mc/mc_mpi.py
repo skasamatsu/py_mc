@@ -35,7 +35,7 @@ def RX_MPI_init():
 
 
 class ParallelMC(object):
-    def __init__(self, comm, MCalgo, model, configs, kTs, grid=None, writefunc=write_energy, subdirs=True):
+    def __init__(self, comm, MCalgo, model, configs, kTs, grid=None, subdirs=True):
         self.comm = comm
         self.rank = self.comm.Get_rank()
         self.procs = self.comm.Get_size()
@@ -53,7 +53,7 @@ class ParallelMC(object):
 
         myconfig = configs[self.rank]
         mytemp = kTs[self.rank]
-        self.mycalc = MCalgo(model, mytemp, myconfig, writefunc, grid)
+        self.mycalc = MCalgo(model, mytemp, myconfig, grid)
         
     def run(self, nsteps, sample_frequency, observefunc=lambda *args: None):
         if self.subdirs:
@@ -73,9 +73,8 @@ class ParallelMC(object):
 
         
 class TemperatureRX_MPI(ParallelMC):
-    def __init__(self, comm, MCalgo, model, configs, kTs, grid=None, swap_algo=swap_configs, writefunc=write_energy_Temp, subdirs=True):
-        super(TemperatureRX_MPI, self).__init__(comm, MCalgo, model, configs, kTs, grid, writefunc, subdirs)
-        self.swap_algo = swap_algo
+    def __init__(self, comm, MCalgo, model, configs, kTs, grid=None,  subdirs=True):
+        super(TemperatureRX_MPI, self).__init__(comm, MCalgo, model, configs, kTs, grid, subdirs)
         self.betas = 1.0/np.array(kTs)
         self.energyRankMap = np.zeros(len(kTs))
         #self.energyRankMap[i] holds the energy of the ith rank
@@ -132,8 +131,8 @@ class TemperatureRX_MPI(ParallelMC):
         self.mycalc.kT = self.kTs[self.myTindex()]
 
     
-    def run(self, nsteps, RXtrial_frequency, sample_frequency,
-            observfunc=lambda *args: None, subdirs=True):
+    def run(self, nsteps, RXtrial_frequency, sample_frequency=0,
+            observefunc=lambda *args: (None,None), subdirs=True):
         if subdirs:
             try:
                 os.mkdir(str(self.rank))
@@ -142,9 +141,13 @@ class TemperatureRX_MPI(ParallelMC):
             os.chdir(str(self.rank))
         self.accept_count = 0
         self.mycalc.energy = self.mycalc.model.energy(self.mycalc.config)
-        if hasattr(observfunc(self.mycalc,open(os.devnull,"w")),"__iter__"):
-            obs_len = len(observfunc(self.mycalc,open(os.devnull,"w")))
+        if hasattr(observefunc(self.mycalc,open(os.devnull,"w"))[1],"__iter__"):
+            obs_len = len(observefunc(self.mycalc,open(os.devnull,"w"))[1])
             obs = np.zeros([len(self.kTs), obs_len])
+        if hasattr(observefunc(self.mycalc,open(os.devnull,"w"))[1],'__add__'):
+            observe = True
+        else:
+            observe = False
         nsample = 0
         XCscheme = 0
         output = open("obs.dat", "a")
@@ -156,8 +159,9 @@ class TemperatureRX_MPI(ParallelMC):
             if i%RXtrial_frequency == 0:
                 self.Xtrial(XCscheme)
                 XCscheme = (XCscheme+1)%2
-            if i%sample_frequency == 0:
-                obs[self.myTindex()] += observfunc(self.mycalc, output)
+            if i%sample_frequency == 0 and observe:
+                args_info, obs_step = observefunc(self.mycalc, output)
+                obs[self.myTindex()] += obs_step
                 nsample += 1
         
         pickle.dump(self.mycalc.config, open("calc.pickle","wb"))
@@ -172,6 +176,9 @@ class TemperatureRX_MPI(ParallelMC):
             obs_buffer = np.empty(obs.shape)
             obs /= nsample
             self.comm.Allreduce(obs, obs_buffer, op=MPI.SUM)
-            return obs_buffer
+            obs_list = []
+            for i in range(len(self.kTs)):
+                obs_list.append(obs_decode(args_info,obs_buffer[i]))
+            return obs_list
         
         

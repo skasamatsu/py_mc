@@ -51,13 +51,10 @@ class grid_1D:
     
 class CanonicalMonteCarlo:
 
-    def __init__(self, model, kT, config, writefunc=write_energy,
-                 grid=0):
+    def __init__(self, model, kT, config, grid=0):
         self.model = model
         self.config = config
         self.kT = kT
-        #self.energy = self.model.energy(self.config)
-        self.writefunc = writefunc
         self.grid = grid
 
     def MCstep(self):
@@ -76,7 +73,7 @@ class CanonicalMonteCarlo:
                 self.energy += dE
                 #print "trial accepted"
 
-    def run(self, nsteps, sample_frequency=0, observefunc=lambda *args: None):
+    def run(self, nsteps, sample_frequency=0, observefunc=lambda *args: (None,None)):
         if not sample_frequency:
             sample_frequency = float("inf")
             
@@ -84,7 +81,7 @@ class CanonicalMonteCarlo:
         nsample = 0
         self.energy = self.model.energy(self.config)
         output = open("obs.dat", "a")
-        if hasattr(observefunc(self,output),'__add__'):
+        if hasattr(observefunc(self,open(os.devnull,"w"))[1],'__add__'):
             observe = True
         else:
             observe = False
@@ -93,11 +90,12 @@ class CanonicalMonteCarlo:
             self.MCstep()
             sys.stdout.flush()
             if i%sample_frequency == 0 and observe:
-                #self.writefunc(self)
-                observables += observefunc(self,output)
+                args_info, obs_step = observefunc(self,output)
+                observables += obs_step
                 nsample += 1
         if nsample > 0:
-            return observables/nsample
+            observables /= nsample
+            return obs_decode(args_info, observables)
         else:
             return None
         
@@ -159,7 +157,7 @@ def swap_configs(MCreplicas, rep, accept_count):
             
 class TemperatureReplicaExchange:
 
-    def __init__(self, model, kTs, configs, MCalgo, swap_algo=swap_configs, writefunc=write_energy):
+    def __init__(self, model, kTs, configs, MCalgo, swap_algo=swap_configs):
         assert len(kTs) == len(configs)
         self.model = model
         self.kTs = kTs
@@ -211,20 +209,41 @@ def obs_encode(*args):
     args_length_list = []
     obs_array = np.array([])
     for arg in args:
-        obs_array = np.concatenate((obs_array, np.array(arg)))
+        # Inelegant way to make everything a 1D array
+        arg = np.array([arg])
+        arg = arg.ravel()
+        obs_array = np.concatenate((obs_array, arg))
         args_length_list.append(len(arg))
     args_length_array = np.array(args_length_list)
     args_info = np.concatenate((nargs, args_length_array))
-    return  np.concatenate((args_info, obs_array))
+    return args_info, obs_array
 
-def obs_decode(obs):
-    nargs = np.around(obs[0]).astype(int)
-    args_length_array = np.around(obs[1:nargs+1]).astype(int)
+def obs_decode(args_info, obs_array):
+    nargs = args_info[0]
+    args_length_array = args_info[1:nargs+1]
     args = []
-    idx = nargs+1
+    idx = 0
     for i in range(nargs):
         length = args_length_array[i]
-        args.append(obs[idx:idx+length])
+        if length == 1:
+            args.append(obs_array[idx])
+        else:
+            args.append(obs_array[idx:idx+length])
         idx += length
     return args
 
+def make_observefunc(logfunc,*multiDfuncs):
+    def observefunc(calc_state, outputfi):
+        obs_log = logfunc(calc_state)
+        outputfi.write(str(calc_state.kT)+"\t")
+        if hasattr(obs_log, '__getitem__'):
+            outputfi.write("\t".join([str(observable) for observable in obs_log])+"\n")
+        else:
+            outputfi.write(str(obs_log)+"\n")
+        obs_ND = []
+        for func in multiDfuncs:
+            obs_ND.append(func(calc_state))
+        return obs_encode(*obs_log, *obs_ND)
+    return observefunc
+            
+            
