@@ -2,7 +2,7 @@ import numpy as np
 import random as rand
 import sys
 
-from mc import model, CanonicalMonteCarlo
+from py_mc.mc import model, CanonicalMonteCarlo, make_observefunc
 
 class ising2D(model):
     '''This class defines the 2D ising model'''
@@ -80,38 +80,31 @@ class ising2D_config:
             s += "\n"
         return s
 
+def energy_magnet(calc_state):
+    energy = calc_state.energy
+    magnetization = calc_state.model.magnetization(calc_state.config)
+    return energy, abs(magnetization)
 
 if __name__ == "__main__":
     J = -1.0
-    kT = abs(J) * 1.0
-    size = 10
-    eqsteps = 100000
+    kT = abs(J) * 5.0
+    size = 16
+    eqsteps = 10000
     mcsteps = 1000000
-    sample_frequency = size*size
+    sample_frequency = 100 #size*size
     config = ising2D_config(size,size)
     config.prepare_random()
     model = ising2D(J)
-
-    for kT in [5]: #np.arange(5, 0.5, -0.05):
-        energy_expect = 0
-        magnet_expect = 0
-        
-        kT = abs(J)*kT        
-
-        #print config        
+    observefunc = make_observefunc(energy_magnet)
+    for kT in np.linspace(5.0, 0.01, 24):      
+        kT = abs(J)*kT
         calc = CanonicalMonteCarlo(model, kT, config)
         calc.run(eqsteps)
-
-        mcloop = mcsteps//sample_frequency
-        for i in range(mcloop):
-            calc.run(sample_frequency)
-            #print model.energy(config), model.magnetization(config)
-            current_config = calc.config
-            energy_expect += model.energy(current_config)
-            magnet_expect += abs(model.magnetization(current_config))
-        print(kT, energy_expect/mcloop, magnet_expect/mcloop)
+        obs = calc.run(mcsteps,sample_frequency,observefunc)
+        obs[1] /= size*size
+        print(kT,"\t", "\t".join([str(x) for x in obs]))
         sys.stdout.flush()
-    #calc.run(100000)
-    #print config
+        model = calc.model
+        config = calc.config
     
         
