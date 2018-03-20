@@ -2,7 +2,7 @@ import numpy as np
 import random as rand
 import sys
 
-from mc import CanonicalMonteCarlo, grid_1D
+from py_mc.mc import CanonicalMonteCarlo, grid_1D
 from model_setup import *
 
 
