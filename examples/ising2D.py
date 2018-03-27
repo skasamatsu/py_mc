@@ -2,7 +2,7 @@ import numpy as np
 import random as rand
 import sys
 
-from py_mc.mc import model, CanonicalMonteCarlo, make_observefunc
+from py_mc.mc import model, CanonicalMonteCarlo, observer_base
 
 class ising2D(model):
     '''This class defines the 2D ising model'''
@@ -80,31 +80,33 @@ class ising2D_config:
             s += "\n"
         return s
 
-def energy_magnet(calc_state):
-    energy = calc_state.energy
-    magnetization = calc_state.model.magnetization(calc_state.config)
-    return energy, abs(magnetization)
+class observer(observer_base):
+    def logfunc(self, calc_state):
+        energy = calc_state.energy
+        magnetization = calc_state.model.magnetization(calc_state.config)
+        return energy, abs(magnetization)
 
 if __name__ == "__main__":
     J = -1.0
     kT = abs(J) * 5.0
-    size = 16
-    eqsteps = 10000
-    mcsteps = 1000000
-    sample_frequency = 100 #size*size
+    size = 50
+    nspin = size*size
+    eqsteps = nspin*100
+    mcsteps = nspin*100
+    sample_frequency = nspin
     config = ising2D_config(size,size)
     config.prepare_random()
     model = ising2D(J)
-    observefunc = make_observefunc(energy_magnet)
     for kT in np.linspace(5.0, 0.01, 24):      
         kT = abs(J)*kT
         calc = CanonicalMonteCarlo(model, kT, config)
         calc.run(eqsteps)
-        obs = calc.run(mcsteps,sample_frequency,observefunc)
-        obs[1] /= size*size
-        print(kT,"\t", "\t".join([str(x) for x in obs]))
+        obs = calc.run(mcsteps,sample_frequency,observer())
+        print(kT,"\t", "\t".join([str(x/nspin) for x in obs]))
         sys.stdout.flush()
         model = calc.model
         config = calc.config
+        #print(config)
+        
     
         
