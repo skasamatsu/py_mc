@@ -55,7 +55,7 @@ class ParallelMC(object):
         mytemp = kTs[self.rank]
         self.mycalc = MCalgo(model, mytemp, myconfig, grid)
         
-    def run(self, nsteps, sample_frequency, observefunc=lambda *args: None):
+    def run(self, nsteps, sample_frequency, observer=observer_base()):
         if self.subdirs:
             # make working directory for this rank
             try:
@@ -63,7 +63,7 @@ class ParallelMC(object):
             except FileExistsError:
                 pass
             os.chdir(str(self.rank))
-        observables = self.mycalc.run(nsteps, sample_frequency, observefunc)
+        observables = self.mycalc.run(nsteps, sample_frequency, observer)
         pickle.dump(self.mycalc.config, open("config.pickle","wb"))
         if self.subdirs: os.chdir("../")
         if sample_frequency:
@@ -132,7 +132,7 @@ class TemperatureRX_MPI(ParallelMC):
 
     
     def run(self, nsteps, RXtrial_frequency, sample_frequency=0,
-            observefunc=lambda *args: (None,None), subdirs=True):
+            observer=observer_base(), subdirs=True):
         if subdirs:
             try:
                 os.mkdir(str(self.rank))
@@ -141,10 +141,10 @@ class TemperatureRX_MPI(ParallelMC):
             os.chdir(str(self.rank))
         self.accept_count = 0
         self.mycalc.energy = self.mycalc.model.energy(self.mycalc.config)
-        if hasattr(observefunc(self.mycalc,open(os.devnull,"w"))[1],"__iter__"):
-            obs_len = len(observefunc(self.mycalc,open(os.devnull,"w"))[1])
+        if hasattr(observer.observe(self.mycalc,open(os.devnull,"w"))[1],"__iter__"):
+            obs_len = len(observer.observe(self.mycalc,open(os.devnull,"w"))[1])
             obs = np.zeros([len(self.kTs), obs_len])
-        if hasattr(observefunc(self.mycalc,open(os.devnull,"w"))[1],'__add__'):
+        if hasattr(observer.observe(self.mycalc,open(os.devnull,"w"))[1],'__add__'):
             observe = True
         else:
             observe = False
@@ -153,14 +153,14 @@ class TemperatureRX_MPI(ParallelMC):
         output = open("obs.dat", "a")
         if not sample_frequency:
             sample_frequency = float("inf")
-        for i in range(nsteps):
+        for i in range(1,nsteps+1):
             self.mycalc.MCstep()
             sys.stdout.flush()
             if i%RXtrial_frequency == 0:
                 self.Xtrial(XCscheme)
                 XCscheme = (XCscheme+1)%2
             if i%sample_frequency == 0 and observe:
-                args_info, obs_step = observefunc(self.mycalc, output)
+                args_info, obs_step = observer.observe(self.mycalc, output)
                 obs[self.myTindex()] += obs_step
                 nsample += 1
         
