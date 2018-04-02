@@ -49,6 +49,22 @@ class grid_1D:
         self.dx = dx
         self.x = np.arange(minx, maxx, dx)
 
+def binning(x, nlevels):
+    error_estimate = []
+    x = np.array(x)
+    assert 2**nlevels < len(x)
+    throwout = len(x)%(2**nlevels)
+    if throwout != 0:
+        # The number of measurements must be divisible by 2**nlevels
+        # If not, throw out initial measurements
+        x = x[throwout:]
+    error_estimate.append(np.sqrt(np.var(x, ddof=1)/len(x)))
+    for lvl in range(1,nlevels):     
+        x_tmp = x
+        x = (x_tmp[0::2] + x_tmp[1::2])/2.0
+        error_estimate.append(np.sqrt(np.var(x, ddof=1)/len(x)))
+    return error_estimate
+        
 def obs_encode(*args):
     nargs = np.array([len(args)])
     args_length_list = []
