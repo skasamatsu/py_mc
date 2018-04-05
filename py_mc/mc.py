@@ -113,6 +113,7 @@ class observer_base:
 
             else:
                 obs_ND.append(obs_save)
+        outputfi.flush()
         return obs_encode(*obs_log, *obs_ND)
         
 class CanonicalMonteCarlo:
