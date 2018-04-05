@@ -95,26 +95,28 @@ class observer(observer_base):
 if __name__ == "__main__":
     J = -1.0
     kT = abs(J) * 5.0
-    size = 10
+    size = 5
     nspin = size*size
-    eqsteps = nspin*1000
-    mcsteps = nspin*1000
+    eqsteps = 2**14*6 #nspin*1000
+    mcsteps = 2**14*30 #nspin*1000
     sample_frequency = 1 #nspin
+    print_frequency = 1000
     config = ising2D_config(size,size)
     config.prepare_random()
     model = ising2D(J)
     binning_file = open("binning.dat", "a")
-    for kT in np.linspace(5.0, 0.01, 24):      
+    for kT in np.linspace(5.0, 0.01, 10):      
         kT = abs(J)*kT
         calc = CanonicalMonteCarlo(model, kT, config)
         calc.run(eqsteps)
         myobserver = observer()
-        obs = calc.run(mcsteps,sample_frequency,myobserver)
-        print(kT,"\t", "\t".join([str(x/nspin) for x in obs]))
+        obs = calc.run(mcsteps,sample_frequency,print_frequency,myobserver)
         # binning analysis
-        error_estimate = binning(myobserver.magnet_obs,10)
-        binning_file.write("\n".join([str(x) for x in error_estimate])+"\n\n")
+        error_estimate = binning(np.asarray(myobserver.magnet_obs)/nspin,13)
+        binning_file.write("\n".join([str(x) for x in error_estimate])+"\n\n\n")
+        print(kT,"\t", "\t".join([str(x/nspin) for x in obs]), np.max(error_estimate))
         sys.stdout.flush()
+        binning_file.flush()
         model = calc.model
         config = calc.config
         #print(config)
