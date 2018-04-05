@@ -26,6 +26,7 @@ class model:
         constructing the trial configuration from config to be used in newconfig(). Make sure that
         config is the same upon entry and exit'''
         dE = 0.0
+        dconfig = None
         # Return only change in configuration dconfig so that
         # you don't have to copy entire configurations,
         # which can sometimes be costly
@@ -49,19 +50,52 @@ class grid_1D:
         self.dx = dx
         self.x = np.arange(minx, maxx, dx)
 
+def binning(x, nlevels):
+    error_estimate = []
+    x = np.array(x)
+    assert 2**nlevels*30 < len(x)
+    throwout = len(x)%(2**nlevels)
+    if throwout != 0:
+        # The number of measurements must be divisible by 2**nlevels
+        # If not, throw out initial measurements
+        x = x[throwout:]
+    error_estimate.append(np.sqrt(np.var(x, ddof=1)/len(x)))
+    for lvl in range(1,nlevels):     
+        x_tmp = x
+        x = (x_tmp[0::2] + x_tmp[1::2])/2.0
+        error_estimate.append(np.sqrt(np.var(x, ddof=1)/len(x)))
+    return error_estimate
+
+empty_array = np.array([])
+#@profile
 def obs_encode(*args):
-    nargs = np.array([len(args)])
-    args_length_list = []
-    obs_array = np.array([])
+    #nargs = np.array([len(args)])
+    #args_length_list = []
+    obs_array = empty_array
     for arg in args:
         # Inelegant way to make everything a 1D array
         arg = np.array([arg])
         arg = arg.ravel()
         obs_array = np.concatenate((obs_array, arg))
+        #args_length_list.append(len(arg))
+    #args_length_array = np.array(args_length_list)
+    #args_info = np.concatenate((nargs, args_length_array))
+    return obs_array
+
+def args_info(*args):
+    nargs = np.array([len(args)])
+    args_length_list = []
+    #obs_array = np.array([])
+    for arg in args:
+        # Inelegant way to make everything a 1D array
+        arg = np.array([arg])
+        arg = arg.ravel()
+        #obs_array = np.concatenate((obs_array, arg))
         args_length_list.append(len(arg))
     args_length_array = np.array(args_length_list)
     args_info = np.concatenate((nargs, args_length_array))
-    return args_info, obs_array
+    return args_info
+
 
 def obs_decode(args_info, obs_array):
     nargs = args_info[0]
@@ -93,17 +127,31 @@ def make_observefunc(logfunc,*multiDfuncs):
 
         
 class observer_base:
+    def obs_info(self, calc_state):
+        obs_log = self.logfunc(calc_state)
+        obs_ND = []
+        obs_save = self.savefuncs(calc_state)
+        if obs_save != None:
+            if isinstance(obs_save, tuple):
+                for obs in obs_save:
+                    obs_ND.append(obs)
+
+            else:
+                obs_ND.append(obs_save)
+        return args_info(*obs_log, *obs_ND)
+
     def logfunc(self, calc_state):
         return calc_state.energy,
     def savefuncs(self, calc_state):
         return None
-    def observe(self, calc_state, outputfi):
+    def observe(self, calc_state, outputfi, lprint=True):
         obs_log = self.logfunc(calc_state)
-        outputfi.write(str(calc_state.kT)+"\t")
-        if isinstance(obs_log, tuple):
-            outputfi.write("\t".join([str(observable) for observable in obs_log])+"\n")
-        else:
-            outputfi.write(str(obs_log)+"\n")
+        if lprint:
+            outputfi.write(str(calc_state.kT)+"\t")
+            if isinstance(obs_log, tuple):
+                outputfi.write("\t".join([str(observable) for observable in obs_log])+"\n")
+            else:
+                outputfi.write(str(obs_log)+"\n")
         obs_ND = []
         obs_save = self.savefuncs(calc_state)
         if obs_save != None:
@@ -122,7 +170,7 @@ class CanonicalMonteCarlo:
         self.config = config
         self.kT = kT
         self.grid = grid
-
+    #@profile
     def MCstep(self):
         dconfig, dE  = self.model.trialstep(self.config, self.energy)
         if self.energy == float("inf"):
@@ -139,15 +187,17 @@ class CanonicalMonteCarlo:
                 self.energy += dE
                 #print "trial accepted"
 
-    def run(self, nsteps, sample_frequency=0, observer=observer_base()):
+    def run(self, nsteps, sample_frequency=0, print_frequency=0, observer=observer_base()):
         if not sample_frequency:
             sample_frequency = float("inf")
+        if not print_frequency:
+            print_frequency = float("inf")
             
         observables = 0.0
         nsample = 0
         self.energy = self.model.energy(self.config)
         output = open("obs.dat", "a")
-        if hasattr(observer.observe(self,open(os.devnull,"w"))[1],'__add__'):
+        if hasattr(observer.observe(self,open(os.devnull,"w")),'__add__'):
             observe = True
         else:
             observe = False
@@ -156,11 +206,12 @@ class CanonicalMonteCarlo:
             self.MCstep()
             sys.stdout.flush()
             if i%sample_frequency == 0 and observe:
-                args_info, obs_step = observer.observe(self,output)
+                obs_step = observer.observe(self, output, i%print_frequency)
                 observables += obs_step
                 nsample += 1
         if nsample > 0:
             observables /= nsample
+            args_info = observer.obs_info(self)
             return obs_decode(args_info, observables)
         else:
             return None
@@ -220,7 +271,7 @@ def swap_configs(MCreplicas, rep, accept_count):
     accept_count += 1
     return MCreplicas, accept_count
     
-            
+'''
 class TemperatureReplicaExchange:
 
     def __init__(self, model, kTs, configs, MCalgo, swap_algo=swap_configs):
@@ -272,3 +323,4 @@ class TemperatureReplicaExchange:
 
             
             
+'''

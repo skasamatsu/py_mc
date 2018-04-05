@@ -2,7 +2,7 @@ import numpy as np
 import random as rand
 import sys
 
-from py_mc.mc import model, CanonicalMonteCarlo, observer_base
+from py_mc.mc import model, CanonicalMonteCarlo, binning, observer_base
 
 class ising2D(model):
     '''This class defines the 2D ising model'''
@@ -81,29 +81,42 @@ class ising2D_config:
         return s
 
 class observer(observer_base):
+    def __init__(self):
+        self.energy_obs = []
+        self.magnet_obs = []
     def logfunc(self, calc_state):
         energy = calc_state.energy
         magnetization = calc_state.model.magnetization(calc_state.config)
-        return energy, abs(magnetization)
+        #self.energy_obs.append(energy)
+        absmag = abs(magnetization)
+        self.magnet_obs.append(absmag)
+        return energy, absmag
 
 if __name__ == "__main__":
     J = -1.0
     kT = abs(J) * 5.0
-    size = 50
+    size = 5
     nspin = size*size
-    eqsteps = nspin*100
-    mcsteps = nspin*100
-    sample_frequency = nspin
+    eqsteps = 2**14*6 #nspin*1000
+    mcsteps = 2**14*30 #nspin*1000
+    sample_frequency = 1 #nspin
+    print_frequency = 1000
     config = ising2D_config(size,size)
     config.prepare_random()
     model = ising2D(J)
-    for kT in np.linspace(5.0, 0.01, 24):      
+    binning_file = open("binning.dat", "a")
+    for kT in np.linspace(5.0, 0.01, 10):      
         kT = abs(J)*kT
         calc = CanonicalMonteCarlo(model, kT, config)
         calc.run(eqsteps)
-        obs = calc.run(mcsteps,sample_frequency,observer())
-        print(kT,"\t", "\t".join([str(x/nspin) for x in obs]))
+        myobserver = observer()
+        obs = calc.run(mcsteps,sample_frequency,print_frequency,myobserver)
+        # binning analysis
+        error_estimate = binning(np.asarray(myobserver.magnet_obs)/nspin,13)
+        binning_file.write("\n".join([str(x) for x in error_estimate])+"\n\n\n")
+        print(kT,"\t", "\t".join([str(x/nspin) for x in obs]), np.max(error_estimate))
         sys.stdout.flush()
+        binning_file.flush()
         model = calc.model
         config = calc.config
         #print(config)
