@@ -1,8 +1,11 @@
 from math import exp
-from random import random,randrange
-from multiprocessing import Process, Queue, Pool, TimeoutError
+from random import random
+#import SFMT_cython.sfmt_random as sfmt_random
+#from multiprocessing import Process, Queue, Pool, TimeoutError
 import os, sys
 import numpy as np
+verylargeint = sys.maxsize
+
 
 '''Defines base classes for Monte Carlo simulations'''
 
@@ -145,24 +148,17 @@ class observer_base:
     def savefuncs(self, calc_state):
         return None
     def observe(self, calc_state, outputfi, lprint=True):
-        obs_log = self.logfunc(calc_state)
+        obs_log = np.atleast_1d(self.logfunc(calc_state))
         if lprint:
-            outputfi.write(str(calc_state.kT)+"\t")
-            if isinstance(obs_log, tuple):
-                outputfi.write("\t".join([str(observable) for observable in obs_log])+"\n")
-            else:
-                outputfi.write(str(obs_log)+"\n")
-        obs_ND = []
+            outputfi.write(str(calc_state.kT)+"\t"+
+                           "\t".join([str(x) for x in obs_log])+"\n")
         obs_save = self.savefuncs(calc_state)
         if obs_save != None:
-            if isinstance(obs_save, tuple):
-                for obs in obs_save:
-                    obs_ND.append(obs)
-
-            else:
-                obs_ND.append(obs_save)
-        outputfi.flush()
-        return obs_encode(*obs_log, *obs_ND)
+            obs_save = np.atleast_1d(obs_save)
+            obs_save.ravel()
+            return np.concatenate((obs_log, obs_save))
+        else:
+            return obs_log
         
 class CanonicalMonteCarlo:
     def __init__(self, model, kT, config, grid=0):
@@ -173,26 +169,22 @@ class CanonicalMonteCarlo:
     #@profile
     def MCstep(self):
         dconfig, dE  = self.model.trialstep(self.config, self.energy)
-        if self.energy == float("inf"):
-            self.config = self.model.newconfig(self.config, dconfig)
-            self.energy = dE
-        elif dE < 0.0:
+        #if self.energy == float("inf"):
+        #    self.config = self.model.newconfig(self.config, dconfig)
+        #    self.energy = dE
+        if dE < 0.0:
             self.config = self.model.newconfig(self.config, dconfig)
             self.energy += dE
             #print "trial accepted"
         else:
             accept_probability = exp(-dE/self.kT)
+            #if sfmt_random.random_sample() <= accept_probability:
             if random() <= accept_probability:
                 self.config = self.model.newconfig(self.config, dconfig)
                 self.energy += dE
                 #print "trial accepted"
 
-    def run(self, nsteps, sample_frequency=0, print_frequency=0, observer=observer_base()):
-        if not sample_frequency:
-            sample_frequency = float("inf")
-        if not print_frequency:
-            print_frequency = float("inf")
-            
+    def run(self, nsteps, sample_frequency=verylargeint, print_frequency=verylargeint, observer=observer_base()):
         observables = 0.0
         nsample = 0
         self.energy = self.model.energy(self.config)
@@ -206,7 +198,7 @@ class CanonicalMonteCarlo:
             self.MCstep()
             sys.stdout.flush()
             if i%sample_frequency == 0 and observe:
-                obs_step = observer.observe(self, output, i%print_frequency)
+                obs_step = observer.observe(self, output, i%print_frequency==0)
                 observables += obs_step
                 nsample += 1
         if nsample > 0:
@@ -218,46 +210,6 @@ class CanonicalMonteCarlo:
         
 
                 
-def MCalgo_Run_multiprocess_wrapper(MCcalc, nsteps, sample_frequency=0, outdir=None):
-    if outdir:
-        print("got into wrapper")
-        # create subdirectory and run there
-        cwd = os.getcwd()
-        if not os.path.exists(outdir): os.mkdir(outdir)
-        os.chdir(outdir)
-        MCcalc.run(nsteps, sample_frequency)
-        os.chdir(cwd)
-    else:
-        MCcalc.run(nsteps, sample_frequency)
-    return MCcalc
-
-def MultiProcessReplicaRun(MCcalc_list, nsteps, pool, sample_frequency=0, subdirs=False):
-    n_replicas = len(MCcalc_list)
-    if subdirs:
-        print("subdirs")
-        results = [
-            pool.apply_async(
-                MCalgo_Run_multiprocess_wrapper,(MCcalc_list[rep],
-                                                 nsteps, sample_frequency, str(rep))
-            )
-            for rep in range(n_replicas)
-        ]
-        print("after apply_async")
-    else:
-        print("not subdirs")
-        results = [
-            pool.apply_async(
-                MCalgo_Run_multiprocess_wrapper,(MCcalc_list[rep],
-                                                 nsteps, sample_frequency)
-            )
-            for rep in range(n_replicas)
-        ]
-    results_list = [res.get(timeout=1800) for res in results]
-    print("after res.get")
-    for result in results:
-        if not result.successful():
-            sys.exit("Something went wrong")
-    return results_list
 
 
 def swap_configs(MCreplicas, rep, accept_count):
