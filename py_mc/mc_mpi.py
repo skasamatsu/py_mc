@@ -83,11 +83,15 @@ class TemperatureRX_MPI(ParallelMC):
         self.rank_to_T = np.arange(0, self.procs, 1, dtype=np.int)
         self.float_buffer = np.array(0.0, dtype=np.float)
         self.int_buffer = np.array(0, dtype=np.int)
+        self.obs_save = []
+        self.Trank_hist = []
 
     def reload(self):
         self.rank_to_T = pickle.load(open("rank_to_T.pickle","rb"))
         self.mycalc.kT = self.kTs[self.myTindex()]
         self.mycalc.config = pickle.load(open(str(self.rank)+"/calc.pickle","rb"))
+        self.obs_save = pickle.load(open(str(self.rank)+"/obs_save.pickle","rb"))
+        self.Trank_hist = pickle.load(open(str(self.rank)+"/Trank_hist.pickle","rb"))
         
     def myTindex(self):
         for i in range(self.nreplicas):
@@ -96,10 +100,11 @@ class TemperatureRX_MPI(ParallelMC):
         sys.exit("Internal error in TemperatureRX_MPI.rank_to_T")
 
     def find_procrank_from_Trank(self, Trank):
-        for i in range(self.nreplicas):
-            if self.rank_to_T[i] == Trank:
-                return i
-        sys.exit("Internal error in TemperatureRX_MPI.find_procrank_from_Trank")
+        i = np.argwhere(self.rank_to_T == Trank)
+        if i == None:
+            sys.exit("Internal error in TemperatureRX_MPI.find_procrank_from_Trank")
+        else:
+            return i
 
     def Xtrial(self, XCscheme=-1):
         # What is my temperature rank?
@@ -120,26 +125,23 @@ class TemperatureRX_MPI(ParallelMC):
             if delta < 0.0:
                 # Exchange temperatures!
                 self.comm.Send([self.rank_to_T[self.rank],1,MPI.INT], dest=exchange_rank, tag=2)
-                #self.comm.send(self.rank_to_T[self.rank], dest=exchange_rank, tag=2)
+                
                 self.rank_to_T[self.rank] = myTrankp1
             else:
                 accept_probability = exp(-delta)
                 #print accept_probability, "accept prob"
                 if random() <= accept_probability:
                     self.comm.Send([self.rank_to_T[self.rank],1,MPI.INT], dest=exchange_rank, tag=2)
-                    #self.comm.send(self.rank_to_T[self.rank], dest=exchange_rank, tag=2)
                     self.rank_to_T[self.rank] = myTrankp1
                 else:
                     #print("RXtrial rejected")
                     self.comm.Send([self.rank_to_T[exchange_rank],1,MPI.INT], dest=exchange_rank, tag=2)
-                    #self.comm.send(self.rank_to_T[exchange_rank], dest=exchange_rank, tag=2)
         else:
             myTrankm1 = myTrank - 1
             exchange_rank = self.find_procrank_from_Trank(myTrankm1)
             self.comm.Send(self.mycalc.energy, dest=exchange_rank, tag=1)
             self.comm.Recv([self.int_buffer,1,MPI.INT],source=exchange_rank, tag=2)
             self.rank_to_T[self.rank] = self.int_buffer
-            #self.rank_to_T[self.rank] = self.comm.recv(source=exchange_rank, tag=2)
         self.comm.Allgather(self.rank_to_T[self.rank], self.rank_to_T)
         self.mycalc.kT = self.kTs[self.rank_to_T[self.rank]]
         return
@@ -184,7 +186,7 @@ class TemperatureRX_MPI(ParallelMC):
     
     def run(self, nsteps, RXtrial_frequency, sample_frequency=verylargeint,
             print_frequency=verylargeint,
-            observer=observer_base(), subdirs=True):
+            observer=observer_base(), subdirs=True, save_obs=True):
         if subdirs:
             try:
                 os.mkdir(str(self.rank))
@@ -208,18 +210,17 @@ class TemperatureRX_MPI(ParallelMC):
             if i%RXtrial_frequency == 0:
                 self.Xtrial(XCscheme)
                 XCscheme = (XCscheme+1)%2
-                #self.comm.Barrier()
-                #print(self.rank_to_T, XCscheme, self.rank, self.mycalc.kT)
-                #sys.stdout.flush()
-                #self.comm.Barrier()
             if i%sample_frequency == 0 and observe:
                 obs_step = observer.observe(self.mycalc, output,i%print_frequency==0)
                 obs[self.rank_to_T[self.rank]] += obs_step
-                #obs[self.myTindex()] += obs_step
+                if save_obs:
+                    self.obs_save.append(obs_step)
+                    self.Trank_hist.append(self.rank_to_T[self.rank])
                 nsample += 1
         
         pickle.dump(self.mycalc.config, open("calc.pickle","wb"))
-        
+        pickle.dump(self.obs_save, open("obs_save.pickle","wb"))
+        pickle.dump(self.Trank_hist, open("Trank_hist.pickle", "wb"))
         if subdirs: os.chdir("../")
 
         if self.rank == 0:
