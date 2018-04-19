@@ -219,8 +219,11 @@ class TemperatureRX_MPI(ParallelMC):
                 nsample += 1
         
         pickle.dump(self.mycalc.config, open("calc.pickle","wb"))
-        pickle.dump(self.obs_save, open("obs_save.pickle","wb"))
-        pickle.dump(self.Trank_hist, open("Trank_hist.pickle", "wb"))
+        np.save(open("obs_save.pickle","wb"), np.array(self.obs_save), False)
+        np.save(open("Trank_hist.pickle", "wb"), np.array(self.Trank_hist), False)
+        #pickle.dump(self.obs_save, open("obs_save.pickle","wb"))
+        #pickle.dump(self.Trank_hist, open("Trank_hist.pickle", "wb"))
+        
         if subdirs: os.chdir("../")
 
         if self.rank == 0:
