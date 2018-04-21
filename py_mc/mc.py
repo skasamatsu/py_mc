@@ -39,15 +39,6 @@ class model:
         '''Build new configuration from config and dconfig.'''
         return config
 
-def write_energy(MCcalc):
-    with open("energy.out", "a") as f:
-        f.write(str(MCcalc.energy)+"\n")
-        f.flush()
-
-def write_energy_Temp(MCcalc, outputfile=open("energy.out", "a")):
-    outputfile.write(str(MCcalc.energy)+"\t"+str(MCcalc.kT)+"\n")
-    outputfile.flush()
-
 class grid_1D:
     def __init__(self, dx, minx, maxx):
         self.dx = dx
@@ -88,12 +79,10 @@ def obs_encode(*args):
 def args_info(*args):
     nargs = np.array([len(args)])
     args_length_list = []
-    #obs_array = np.array([])
     for arg in args:
         # Inelegant way to make everything a 1D array
         arg = np.array([arg])
         arg = arg.ravel()
-        #obs_array = np.concatenate((obs_array, arg))
         args_length_list.append(len(arg))
     args_length_array = np.array(args_length_list)
     args_info = np.concatenate((nargs, args_length_array))
@@ -166,6 +155,7 @@ class CanonicalMonteCarlo:
         self.config = config
         self.kT = kT
         self.grid = grid
+        self.obs_save = []
     #@profile
     def MCstep(self):
         dconfig, dE  = self.model.trialstep(self.config, self.energy)
@@ -184,7 +174,8 @@ class CanonicalMonteCarlo:
                 self.energy += dE
                 #print "trial accepted"
 
-    def run(self, nsteps, sample_frequency=verylargeint, print_frequency=verylargeint, observer=observer_base()):
+    def run(self, nsteps, sample_frequency=verylargeint, print_frequency=verylargeint,
+            observer=observer_base(), save_obs=False):
         observables = 0.0
         nsample = 0
         self.energy = self.model.energy(self.config)
@@ -201,6 +192,10 @@ class CanonicalMonteCarlo:
                 obs_step = observer.observe(self, output, i%print_frequency==0)
                 observables += obs_step
                 nsample += 1
+                if save_obs:
+                    self.obs_save.append(obs_step)
+        if save_obs:
+            np.save(open("obs_save.npy", "wb"), np.array(self.obs_save))
         if nsample > 0:
             observables /= nsample
             args_info = observer.obs_info(self)

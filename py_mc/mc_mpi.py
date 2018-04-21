@@ -90,8 +90,8 @@ class TemperatureRX_MPI(ParallelMC):
         self.rank_to_T = pickle.load(open("rank_to_T.pickle","rb"))
         self.mycalc.kT = self.kTs[self.myTindex()]
         self.mycalc.config = pickle.load(open(str(self.rank)+"/calc.pickle","rb"))
-        self.obs_save = pickle.load(open(str(self.rank)+"/obs_save.pickle","rb"))
-        self.Trank_hist = pickle.load(open(str(self.rank)+"/Trank_hist.pickle","rb"))
+        self.obs_save0 = np.load(open(str(self.rank)+"/obs_save.npy","rb"))
+        self.Trank_hist0 = np.load(open(str(self.rank)+"/Trank_hist.npy","rb"))
         
     def myTindex(self):
         for i in range(self.nreplicas):
@@ -219,10 +219,16 @@ class TemperatureRX_MPI(ParallelMC):
                 nsample += 1
         
         pickle.dump(self.mycalc.config, open("calc.pickle","wb"))
-        np.save(open("obs_save.pickle","wb"), np.array(self.obs_save), False)
-        np.save(open("Trank_hist.pickle", "wb"), np.array(self.Trank_hist), False)
-        #pickle.dump(self.obs_save, open("obs_save.pickle","wb"))
-        #pickle.dump(self.Trank_hist, open("Trank_hist.pickle", "wb"))
+        if save_obs:
+            if hasattr(self, "obs_save0"):
+                obs_save_ = np.concatenate((self.obs_save0, np.array(self.obs_save)))
+                Trank_hist_ = np.concatenate((self.Trank_hist0, np.array(self.Trank_hist)))
+            else:
+                obs_save_ = np.array(self.obs_save)
+                Trank_hist_ = np.array(self.Trank_hist)
+            
+            np.save(open("obs_save.npy","wb"), obs_save_, False)
+            np.save(open("Trank_hist.npy", "wb"), Trank_hist_, False)
         
         if subdirs: os.chdir("../")
 
