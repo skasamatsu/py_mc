@@ -29,10 +29,10 @@ kTs = kB*np.array([kTstart*kTstep**i for i in range(nreplicas)])
 
 #eqsteps = 2000 # Number of steps for equilibration.
 Lreload = False
-nsteps = 2000 # Number of steps for sampling
+nsteps = 4 # Number of steps for sampling
 RXtrial_frequency = 2 
 sample_frequency = 1
-
+print_frequency = 1
 # specify grid for calculating g(r)
 #dr = 0.01
 #maxr = 5
@@ -127,7 +127,7 @@ RXcalc = TemperatureRX_MPI(comm, CanonicalMonteCarlo, model, configs, kTs)
 #obs = RXcalc.run(eqsteps, RXtrial_frequency, sample_frequency, observer=myobserver, subdirs=True)
 if Lreload:
     RXcalc.reload()
-obs = RXcalc.run(nsteps, RXtrial_frequency, sample_frequency, observer=myobserver, subdirs=True)
+obs = RXcalc.run(nsteps, RXtrial_frequency, sample_frequency, print_frequency, observer=myobserver, subdirs=True)
 
 
 
