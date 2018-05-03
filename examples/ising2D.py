@@ -1,11 +1,8 @@
 import numpy as np
 import random as rand
-import copy,sys
+import sys
 
-from mc import *
-from mc_mpi import *
-
-from mpi4py import MPI
+from py_mc.mc import model, CanonicalMonteCarlo, binning, observer_base
 
 class ising2D(model):
     '''This class defines the 2D ising model'''
@@ -83,45 +80,55 @@ class ising2D_config:
             s += "\n"
         return s
 
-def observables(MCcalc, outputfi=open(os.devnull,"w")):
-    energy = MCcalc.energy
-    energy2 = energy**2.0
-    magnetization = abs(MCcalc.model.magnetization(MCcalc.config))
-    magnetization2 = magnetization**2.0
-    outputfi.write(str(energy)+"\t"+str(MCcalc.kT)+"\n")
-    outputfi.flush()
-    return np.array([energy, energy2, magnetization, magnetization2])
-
+class observer(observer_base):
+    def __init__(self):
+        self.energy_obs = []
+        self.magnet_obs = []
+    def logfunc(self, calc_state):
+        energy = calc_state.energy
+        magnetization = calc_state.model.magnetization(calc_state.config)
+        absmag = abs(magnetization)
+        # Save observations at each step
+        self.energy_obs.append(energy)
+        self.magnet_obs.append(absmag)
+        return energy, absmag
 
 if __name__ == "__main__":
-    nprocs=24*18
-
     J = -1.0
-    model = ising2D(J)
-    
-    size = 30
-    eqsteps = 100000
-    nsteps = 1000000
-    sample_frequency = 100 #size*size
-    RXtrial_frequency = 10
+    kT = abs(J) * 5.0
+    size = 10
+    nspin = size*size
+    nstep_param = 16
+    eqsteps = 2**nstep_param*10 #equilibration steps
+    mcsteps = 2**nstep_param*40 #measurement steps
+    sample_frequency = 1 #we sample every step
+    print_frequency = 100000000 #the frequency for printing observer.logfunc() to obs.dat
+
+    binlevel = int(np.log2(mcsteps//30))
     config = ising2D_config(size,size)
-
     config.prepare_random()
-    configs = [copy.deepcopy(config) for i in range(nprocs)]
+    model = ising2D(J)
+    binning_fileE = open("binningE.dat", "w")
+    binning_fileM = open("binningM.dat","w")
+    for kT in np.linspace(5.0, 0.01, 10):      
+        kT = abs(J)*kT
+        calc = CanonicalMonteCarlo(model, kT, config)
+        calc.run(eqsteps) # run equilibration steps
 
-    #kTs = [0.6+0.005*i for i in range(432)]
-    kTs = [0.01*i for i in range(1,nprocs+1)]
-#    parallelCalc = ParallelMC(CanonicalMonteCarlo, model, configs, kTs, writefunc=write_energy, subdirs=True)
-#    parallelCalc.run(eqsteps, None)
-#    obs = parallelCalc.run(nsteps, sample_frequency, observables)
-
-    parallelCalc = TemperatureRX_MPI(CanonicalMonteCarlo, model, configs, kTs)
-    parallelCalc.run(eqsteps, RXtrial_frequency, None, observables)
-    obs = parallelCalc.run(nsteps, RXtrial_frequency, sample_frequency, observables)
+        myobserver = observer() # provide a new observer instance
+        obs = calc.run(mcsteps,sample_frequency, # Run sampling steps
+                       print_frequency,myobserver)
+        
+        # binning analysis for putting error bars on data
+        error_estimateE = binning(np.asarray(myobserver.energy_obs)/nspin,binlevel)
+        error_estimateM = binning(np.asarray(myobserver.magnet_obs)/nspin,binlevel)
+        binning_fileE.write("\n".join([str(x) for x in error_estimateE])+"\n\n\n")
+        binning_fileM.write("\n".join([str(x) for x in error_estimateM])+"\n\n\n")
+        print(kT,"\t", "\t".join([str(x/nspin) for x in obs]), np.max(error_estimateE), np.max(error_estimateM))
+        sys.stdout.flush()
+        #model = calc.model
+        #config = calc.config
+        #print(config)
+        
     
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-    if rank==0:
-        for i in range(len(kTs)):
-            print(kTs[i],"\t".join([str(obs[i,j]) for j in range(len(obs[i,:]))]))
-    
+        
