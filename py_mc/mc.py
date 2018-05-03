@@ -141,6 +141,7 @@ class observer_base:
         if lprint:
             outputfi.write(str(calc_state.kT)+"\t"+
                            "\t".join([str(x) for x in obs_log])+"\n")
+            outputfi.flush()
         obs_save = self.savefuncs(calc_state)
         if obs_save != None:
             obs_save = np.atleast_1d(obs_save)
