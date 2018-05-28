@@ -112,6 +112,7 @@ class dft_latgas(model):
             for i in range(len(calc_history)):
                 if self.matcher.fit(structure, calc_history[i][1]):
                     print("match found in history")
+                    sys.stdout.flush()
                     config.structure = calc_history[i][2]
                     return calc_history[i][0]                                                                                        
         
@@ -139,6 +140,7 @@ class dft_latgas(model):
                         if  data[index][i] > self.ion_move_tol:
                             energy = float("inf")
                             print("ion relaxed out of initial site")
+                            sys.stdout.flush()
                             breakflag = True
                             break
         if self.save_history:
