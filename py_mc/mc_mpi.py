@@ -85,6 +85,7 @@ class TemperatureRX_MPI(ParallelMC):
         self.int_buffer = np.array(0, dtype=np.int)
         self.obs_save = []
         self.Trank_hist = []
+        self.kT_hist = []
 
     def reload(self):
         self.rank_to_T = pickle.load(open("rank_to_T.pickle","rb"))
@@ -92,6 +93,7 @@ class TemperatureRX_MPI(ParallelMC):
         self.mycalc.config = pickle.load(open(str(self.rank)+"/calc.pickle","rb"))
         self.obs_save0 = np.load(open(str(self.rank)+"/obs_save.npy","rb"))
         self.Trank_hist0 = np.load(open(str(self.rank)+"/Trank_hist.npy","rb"))
+        self.kT_hist0 = np.load(open(str(self.rank)+"/kT_hist.npy","rb"))
         
     def myTindex(self):
         for i in range(self.nreplicas):
@@ -216,6 +218,7 @@ class TemperatureRX_MPI(ParallelMC):
                 if save_obs:
                     self.obs_save.append(obs_step)
                     self.Trank_hist.append(self.rank_to_T[self.rank])
+                    self.kT_hist.append(self.mycalc.kT)
                 nsample += 1
         
         pickle.dump(self.mycalc.config, open("calc.pickle","wb"))
@@ -223,17 +226,21 @@ class TemperatureRX_MPI(ParallelMC):
             if hasattr(self, "obs_save0"):
                 obs_save_ = np.concatenate((self.obs_save0, np.array(self.obs_save)))
                 Trank_hist_ = np.concatenate((self.Trank_hist0, np.array(self.Trank_hist)))
+                kT_hist_ = np.concatenate((self.kT_hist0, np.array(self.kT_hist)))
             else:
                 obs_save_ = np.array(self.obs_save)
                 Trank_hist_ = np.array(self.Trank_hist)
+                kT_hist_ = np.array(self.kT_hist)
             
             np.save(open("obs_save.npy","wb"), obs_save_, False)
             np.save(open("Trank_hist.npy", "wb"), Trank_hist_, False)
+            np.save(open("kT_hist.npy", "wb"), kT_hist_, False)
         
         if subdirs: os.chdir("../")
 
         if self.rank == 0:
             pickle.dump(self.rank_to_T, open("rank_to_T.pickle","wb"))
+            np.save(open("kTs.npy", "wb"), self.kTs, False)
 
         if nsample != 0:
             obs = np.array(obs)
