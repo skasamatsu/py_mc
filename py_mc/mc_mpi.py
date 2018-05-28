@@ -76,10 +76,6 @@ class TemperatureRX_MPI(ParallelMC):
     def __init__(self, comm, MCalgo, model, configs, kTs, grid=None,  subdirs=True):
         super(TemperatureRX_MPI, self).__init__(comm, MCalgo, model, configs, kTs, grid, subdirs)
         self.betas = 1.0/np.array(kTs)
-        self.energyRankMap = np.zeros(len(kTs))
-        #self.energyRankMap[i] holds the energy of the ith rank
-        self.T_to_rank = np.arange(0, self.procs, 1, dtype=np.int)
-        # self.T_to_rank[i] holds the rank of the ith temperature
         self.rank_to_T = np.arange(0, self.procs, 1, dtype=np.int)
         self.float_buffer = np.array(0.0, dtype=np.float)
         self.int_buffer = np.array(0, dtype=np.int)
@@ -89,17 +85,12 @@ class TemperatureRX_MPI(ParallelMC):
 
     def reload(self):
         self.rank_to_T = pickle.load(open("rank_to_T.pickle","rb"))
-        self.mycalc.kT = self.kTs[self.myTindex()]
+        self.mycalc.kT = self.kTs[self.rank_to_T[self.rank]]
         self.mycalc.config = pickle.load(open(str(self.rank)+"/calc.pickle","rb"))
         self.obs_save0 = np.load(open(str(self.rank)+"/obs_save.npy","rb"))
         self.Trank_hist0 = np.load(open(str(self.rank)+"/Trank_hist.npy","rb"))
         self.kT_hist0 = np.load(open(str(self.rank)+"/kT_hist.npy","rb"))
         
-    def myTindex(self):
-        for i in range(self.nreplicas):
-            if self.T_to_rank[i] == self.rank:
-                return i
-        sys.exit("Internal error in TemperatureRX_MPI.rank_to_T")
 
     def find_procrank_from_Trank(self, Trank):
         i = np.argwhere(self.rank_to_T == Trank)
@@ -148,43 +139,6 @@ class TemperatureRX_MPI(ParallelMC):
         self.mycalc.kT = self.kTs[self.rank_to_T[self.rank]]
         return
 
-        '''
-        # Gather energy to root node
-        #print(type(self.mycalc.energy))
-        self.comm.Gather([np.float64(self.mycalc.energy), MPI.DOUBLE], self.energyRankMap, root=0)
-        if self.rank == 0:
-            if XCscheme == 0 or XCscheme == 1:
-                # exchanges between 0-1, 2-3, 4-5, ... or 1-2, 3-4, 5-6 are tried
-                # 0 corresponds to lowest energy replica and resides in rank self.T_to_rank[0]
-                trialreplica = XCscheme
-                while trialreplica + 1 < self.procs:
-                    rank_low = self.T_to_rank[trialreplica]
-                    rank_high = self.T_to_rank[trialreplica + 1]
-                    delta = (self.betas[trialreplica+1] - self.betas[trialreplica]) \
-                    *(self.energyRankMap[rank_low] - self.energyRankMap[rank_high])
-
-                    if delta < 0.0:
-                        tmp = self.T_to_rank[trialreplica]
-                        self.T_to_rank[trialreplica] = self.T_to_rank[trialreplica+1]
-                        self.T_to_rank[trialreplica+1] = tmp
-                        #print("RXtrial accepted")
-                    else:
-                        accept_probability = exp(-delta)
-                        #print accept_probability, "accept prob"
-                        if random() <= accept_probability:
-                            tmp = self.T_to_rank[trialreplica]
-                            self.T_to_rank[trialreplica] = self.T_to_rank[trialreplica+1]
-                            self.T_to_rank[trialreplica+1] = tmp
-                            #print("RXtrial accepted")
-                        else:
-                            #print("RXtrial rejected")
-                            pass
-                    trialreplica += 2
-        self.comm.Bcast(self.T_to_rank, root=0)
-        #print(self.T_to_rank)
-        #sys.exit()
-        self.mycalc.kT = self.kTs[self.myTindex()]
-        '''
     
     def run(self, nsteps, RXtrial_frequency, sample_frequency=verylargeint,
             print_frequency=verylargeint,
