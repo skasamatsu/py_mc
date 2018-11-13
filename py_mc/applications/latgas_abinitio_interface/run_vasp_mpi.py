@@ -135,7 +135,7 @@ class vasp_run_mpispawn:
         #    if i == self.commrank:
         failed_dir = []
         vasprundirs = self.comm.gather(output_dir,root=0)
-        print(self.commrank)
+        #print(self.commrank)
         if self.commrank == 0:
             start = timer()
             commspawn = [MPI.COMM_SELF.Spawn(self.path_to_vasp, #/home/issp/vasp/vasp.5.3.5/bin/vasp",
