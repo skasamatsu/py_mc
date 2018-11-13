@@ -24,12 +24,17 @@ comm, nreplicas, nprocs_per_replica = RX_MPI_init()
 ################## RXMC parameters ################################
 # specify temperatures for each replica, number of steps, etc.
 kTstart = 500.0
-kTstep = 1.1
-kTs = kB*np.array([kTstart*kTstep**i for i in range(nreplicas)])
+kTend = 1500.0
+kTs = kB*np.linspace(kTstart,kTend,nreplicas)
+#kTstep = 1.1
+#kTs = kB*np.array([kTstart*kTstep**i for i in range(nreplicas)])
 
 #eqsteps = 2000 # Number of steps for equilibration.
+
+# Set Lreload to True when restarting
 Lreload = False
-nsteps = 4 # Number of steps for sampling
+#Lreload = True
+nsteps = 1000 # Number of steps for sampling
 RXtrial_frequency = 2 
 sample_frequency = 1
 print_frequency = 1
@@ -48,7 +53,7 @@ energy_calculator = vasp_runner(base_input_dir="./baseinput",
                                 nprocs_per_vasp=nprocs_per_replica,
                                 comm=MPI.COMM_SELF, perturb=0.1)
 #energy_calculator = test_runner()
-model = dft_latgas(energy_calculator,save_history=True)
+model = dft_latgas(energy_calculator,save_history=False)
 ##############################################################
 
 

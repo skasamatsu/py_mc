@@ -165,7 +165,18 @@ class vasp_run_mpispawn:
 
         # Rerun if VASP failed
         failed_dir = self.comm.bcast(failed_dir,root=0)
-        if len(failed_dir) != 0 and rerun > 0:
+        if len(failed_dir) != 0 and rerun == 1:
+            if self.commrank == 0:
+                print("falling back to damped algorithm")
+            poscar = Poscar.from_file(output_dir+"/CONTCAR")
+            VaspInput.update({'POSCAR':poscar})
+            incar = VaspInput.get('INCAR')
+            incar.update({'IBRION':3,'POTIM':0.2})
+            VaspInput.update({'INCAR':incar})
+            rerun -= 1
+            self.submit(VaspInput, output_dir, rerun)
+
+        elif len(failed_dir) != 0 and rerun > 0:
             if self.commrank == 0:
                 print("rerunning with copied CONTCARS")
             poscar = Poscar.from_file(output_dir+"/CONTCAR")

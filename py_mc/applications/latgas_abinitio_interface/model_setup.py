@@ -112,6 +112,7 @@ class dft_latgas(model):
             for i in range(len(calc_history)):
                 if self.matcher.fit(structure, calc_history[i][1]):
                     print("match found in history")
+                    sys.stdout.flush()
                     config.structure = calc_history[i][2]
                     return calc_history[i][0]                                                                                        
         
@@ -139,6 +140,7 @@ class dft_latgas(model):
                         if  data[index][i] > self.ion_move_tol:
                             energy = float("inf")
                             print("ion relaxed out of initial site")
+                            sys.stdout.flush()
                             breakflag = True
                             break
         if self.save_history:
@@ -159,36 +161,38 @@ class dft_latgas(model):
         structure0 = copy.deepcopy(config.structure)
         defect_sublattices0 = copy.deepcopy(config.defect_sublattices)
 
-        for defect_sublattice in config.defect_sublattices:
-            latgas_rep = defect_sublattice.latgas_rep
-            #print(latgas_rep)
+        #for defect_sublattice in [rand.choice(config.defect_sublattices)]: #config.defect_sublattices:
 
-            # If there is more than one group on the defect_sublattice,
-            # we either change orientation of one group, or  exchange groups between sites
-            if len(defect_sublattice.groups) > 1:
-                random_divide = 0.5
-            else: random_divide = 2.0
-            if defect_sublattice.groups_orr and rand.random() < random_divide:
-                # Change orientation of one group with orientation attributes
-                # Let's first locate sites that have such groups
-                rot_ids = []
-                for group in defect_sublattice.groups_orr:
-                    rot_ids += match_latgas_group(latgas_rep,group)
-                # Choose the site to rotate and rotate
-                rot_id = rand.choice(rot_ids)
-                rot_group = defect_sublattice.group_dict[latgas_rep[rot_id][0]]
-                rot_group_orr  = latgas_rep[rot_id][1]
-                # Remove the current orientation from the list of possible orientations
-                or_choices = [orx for orx in range(rot_group.orientations) if orx != rot_group_orr]
-                latgas_rep[rot_id] =[rot_group.name,rand.choice(or_choices)]
-                    
-            else:
-                # Exchange different groups between sites
-                ex1_group, ex2_group = rand.sample(defect_sublattice.groups,2)
-                ex1_id = rand.choice(match_latgas_group(latgas_rep, ex1_group))
-                ex2_id = rand.choice(match_latgas_group(latgas_rep, ex2_group))
-                latgas_rep[ex1_id], latgas_rep[ex2_id] = latgas_rep[ex2_id], latgas_rep[ex1_id]
-            #print(latgas_rep)
+        defect_sublattice = rand.choice(config.defect_sublattices)
+        latgas_rep = defect_sublattice.latgas_rep
+        #print(latgas_rep)
+
+        # If there is more than one group on the defect_sublattice,
+        # we either change orientation of one group, or  exchange groups between sites
+        if len(defect_sublattice.groups) > 1:
+            random_divide = 0.5
+        else: random_divide = 2.0
+        if defect_sublattice.groups_orr and rand.random() < random_divide:
+            # Change orientation of one group with orientation attributes
+            # Let's first locate sites that have such groups
+            rot_ids = []
+            for group in defect_sublattice.groups_orr:
+                rot_ids += match_latgas_group(latgas_rep,group)
+            # Choose the site to rotate and rotate
+            rot_id = rand.choice(rot_ids)
+            rot_group = defect_sublattice.group_dict[latgas_rep[rot_id][0]]
+            rot_group_orr  = latgas_rep[rot_id][1]
+            # Remove the current orientation from the list of possible orientations
+            or_choices = [orx for orx in range(rot_group.orientations) if orx != rot_group_orr]
+            latgas_rep[rot_id] =[rot_group.name,rand.choice(or_choices)]
+
+        else:
+            # Exchange different groups between sites
+            ex1_group, ex2_group = rand.sample(defect_sublattice.groups,2)
+            ex1_id = rand.choice(match_latgas_group(latgas_rep, ex1_group))
+            ex2_id = rand.choice(match_latgas_group(latgas_rep, ex2_group))
+            latgas_rep[ex1_id], latgas_rep[ex2_id] = latgas_rep[ex2_id], latgas_rep[ex1_id]
+        #print(latgas_rep)
         config.set_latgas()     
 
         # do vasp calculation on structure

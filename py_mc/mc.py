@@ -121,6 +121,8 @@ def make_observefunc(logfunc,*multiDfuncs):
 class observer_base:
     def obs_info(self, calc_state):
         obs_log = self.logfunc(calc_state)
+        if isinstance(obs_log, tuple)==False:
+            obs_log = (obs_log,)
         obs_ND = []
         obs_save = self.savefuncs(calc_state)
         if obs_save != None:
@@ -145,7 +147,8 @@ class observer_base:
         obs_save = self.savefuncs(calc_state)
         if obs_save != None:
             obs_save = np.atleast_1d(obs_save)
-            obs_save.ravel()
+            obs_save = obs_save.ravel()
+            print(obs_log.shape,obs_save.shape)
             return np.concatenate((obs_log, obs_save))
         else:
             return obs_log
