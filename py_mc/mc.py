@@ -46,15 +46,15 @@ class grid_1D:
 
 def binning(x, nlevels):
     error_estimate = []
-    x = np.array(x)
-    assert 2**nlevels*30 < len(x)
+    x = np.array(x,dtype=np.float64)
+    #assert 2**nlevels*10 < len(x)
     throwout = len(x)%(2**nlevels)
     if throwout != 0:
         # The number of measurements must be divisible by 2**nlevels
         # If not, throw out initial measurements
         x = x[throwout:]
     error_estimate.append(np.sqrt(np.var(x, ddof=1)/len(x)))
-    for lvl in range(1,nlevels):     
+    for lvl in range(1,nlevels+1):     
         x_tmp = x
         x = (x_tmp[0::2] + x_tmp[1::2])/2.0
         error_estimate.append(np.sqrt(np.var(x, ddof=1)/len(x)))
@@ -119,6 +119,8 @@ def make_observefunc(logfunc,*multiDfuncs):
 
         
 class observer_base:
+    def __init__(self):
+        self.lprintcount = 0
     def obs_info(self, calc_state):
         obs_log = self.logfunc(calc_state)
         if isinstance(obs_log, tuple)==False:
@@ -138,12 +140,16 @@ class observer_base:
         return calc_state.energy,
     def savefuncs(self, calc_state):
         return None
+    def writefile(self, calc_state):
+        return None
     def observe(self, calc_state, outputfi, lprint=True):
         obs_log = np.atleast_1d(self.logfunc(calc_state))
         if lprint:
-            outputfi.write(str(calc_state.kT)+"\t"+
+            outputfi.write(str(self.lprintcount)+"\t"+str(calc_state.kT)+"\t"+
                            "\t".join([str(x) for x in obs_log])+"\n")
             outputfi.flush()
+            self.writefile(calc_state)
+            self.lprintcount += 1
         obs_save = self.savefuncs(calc_state)
         if obs_save != None:
             obs_save = np.atleast_1d(obs_save)
