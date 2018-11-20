@@ -151,10 +151,11 @@ class TemperatureRX_MPI(ParallelMC):
             os.chdir(str(self.rank))
         self.accept_count = 0
         self.mycalc.energy = self.mycalc.model.energy(self.mycalc.config)
-        if hasattr(observer.observe(self.mycalc,open(os.devnull,"w")),"__iter__"):
-            obs_len = len(observer.observe(self.mycalc,open(os.devnull,"w")))
+        test_observe = observer.observe(self.mycalc,open(os.devnull,"w"),lprint=False)
+        if hasattr(test_observe,"__iter__"):
+            obs_len = len(test_observe)
             obs = np.zeros([len(self.kTs), obs_len])
-        if hasattr(observer.observe(self.mycalc,open(os.devnull,"w")),'__add__'):
+        if hasattr(test_observe,'__add__'):
             observe = True
         else:
             observe = False
