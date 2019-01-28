@@ -101,6 +101,7 @@ for i in range(nreplicas):
 ################### Observer definition #####################
 class observer_spinel(observer_base):
     def __init__(self, Asite_struct, Bspecie):
+        super(observer_spinel, self).__init__()
         self.Asite_struct = Asite_struct
         self.Bspecie = Bspecie
         self.site_matcher = StructureMatcher(ltol=0.1, primitive_cell=False,
