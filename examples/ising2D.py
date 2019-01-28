@@ -82,6 +82,7 @@ class ising2D_config:
 
 class observer(observer_base):
     def __init__(self):
+        super(observer, self).__init__()
         self.energy_obs = []
         self.magnet_obs = []
     def logfunc(self, calc_state):
@@ -98,7 +99,7 @@ if __name__ == "__main__":
     kT = abs(J) * 5.0
     size = 10
     nspin = size*size
-    nstep_param = 16
+    nstep_param = 12
     eqsteps = 2**nstep_param*10 #equilibration steps
     mcsteps = 2**nstep_param*40 #measurement steps
     sample_frequency = 1 #we sample every step
